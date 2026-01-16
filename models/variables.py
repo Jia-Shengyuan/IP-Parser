@@ -22,4 +22,4 @@ class Variable:
         self.domain = domain
         self.is_pointer = is_pointer
         self.points_to = points_to #pt: sub-variable name -> virtual memory location
-        self.address = (-1, -1)
+        self.address = (-1, -1)    # (address, depth) in abstract memory model
