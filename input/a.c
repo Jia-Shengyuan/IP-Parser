@@ -18,7 +18,8 @@ typedef struct {
     int x, y, z;
 } Vector3;
 
-typedef int Integer; // Can't be handled correctly yet
+typedef int Integer;
+typedef int Array5[5];
 
 typedef struct VEC_3X3X3 {
     Vector3 x[3];

@@ -178,3 +178,5 @@ if __name__ == "__main__":
         print(f"Parsed {len(parser.structs._structs)} structs")
         for s in parser.structs._structs.values():
             print(f"  S: {s.name} (size={s.size})")
+        print(f"  T: Integer (size={parser.structs.get_size('Integer')})")  # Example usage for pure typedef
+        print(f"  T: Array5 (size={parser.structs.get_size('Array5')})")

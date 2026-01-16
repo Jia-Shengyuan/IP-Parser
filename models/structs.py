@@ -128,12 +128,23 @@ class StructsManager:
         return cls()
 
     # what: input a struct definition from libclang node
-    def add_struct_from_node(self, node: Any) -> Struct:
+    def add_struct_from_node(self, node: Any) -> Optional[Struct]:
         """
         Add a struct directly from a libclang node.
         The node can be a STRUCT_DECL cursor or a TYPEDEF_DECL cursor
         like: typedef struct { ... } A;
         """
+        if node.kind == CursorKind.TYPEDEF_DECL:
+            typedef_name = getattr(node, "spelling", "") or ""
+            struct_node = self._get_struct_decl_from_typedef(node)
+            if not struct_node or struct_node.kind != CursorKind.STRUCT_DECL:
+                # Pure typedef (no struct definition here): only record alias.
+                underlying = getattr(node, "underlying_typedef_type", None)
+                underlying_name = getattr(underlying, "spelling", "") if underlying else ""
+                if typedef_name and underlying_name:
+                    self._typeDict[self._normalize_type_name(typedef_name)] = self._normalize_type_name(underlying_name)
+                return None
+
         struct_node, name = self._resolve_struct_node_and_name(node)
         member_types = self._extract_member_types_from_node(struct_node)
         struct_def = Struct(name=name, member_types=member_types, node=struct_node)
