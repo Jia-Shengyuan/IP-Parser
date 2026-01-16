@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Set, Iterable, Any, Optional
 
+from clang.cindex import CursorKind
 
 @dataclass
 class Struct:
@@ -17,6 +18,84 @@ class Struct:
     node: Optional[Any] = None
 
 
+BUILTIN_TYPES = set ([
+    "void", "char", "signed char", "unsigned char",
+    "short", "unsigned short", "signed short", 
+    "int", "signed", "signed int", "unsigned int",
+    "long", "unsigned long", "signed long", 
+    "long long", "unsigned long long", "signed long long",
+    "float", "double", "long double", "_Bool", "bool",
+    "size_t", "ptrdiff_t"])
+
+_structs: Dict[str, Struct] = {}
+_typeDict: Dict[str, str] = {} # typedef alias -> real type
+_typeSize: Dict[str, int] = {}
+_vis: Set[str] = set()
+
+def _NormalizeTypeName(type_name: str) -> str:
+    """
+    Normalize type name by removing extra spaces.
+    E.g., " unsigned   long  " -> "unsigned long"
+    """
+    return ' '.join(type_name.strip().split())
+
+# here we guarantee that `curType` is a clean type name, which means no *, no [].
+# the basic level of structs are `struct StructName`.
+def _CalcTypeSize(curType: str):
+
+    """
+    For builtin types and pointer types, size = 1.
+    For array types, size = element_size * length (simple "T[n]" form).
+    We break up the type for the previous two cases, until only one clean type remains.
+
+    For typedef, we resolve the alias first.
+    For struct types, size = sum(member sizes).
+    """
+
+    curType = _NormalizeTypeName(curType)
+
+    if curType.endswith("*") or curType in BUILTIN_TYPES:
+        return 1
+    
+    if curType.endswith("]") and "[" in curType:
+
+        base = curType[: curType.rfind("[")].strip()
+        length_str = curType[curType.rfind("[") + 1 : -1].strip()
+
+        # memo: will there be types like int a[], instead of int a[NUMBER]?
+        length = int(length_str) if length_str.isdigit() else 1
+
+        return _CalcTypeSize(base) * length
+    
+    if curType.startswith('(') and curType.endswith(')'):
+        return _CalcTypeSize(curType[1:-1])
+    
+    assert curType.find('*') == -1 and curType.find('[') == -1 and curType.find('(') == -1, f"Type {curType} is not clean."
+    
+    # is an alias by typedef
+    if curType in _typeDict:
+        size = _CalcTypeSize(_typeDict[curType])
+        _vis.add(curType)
+        _typeSize[curType] = size
+        return size
+
+    # there should be no re-entry for the same struct type, since it's a DAG
+    if curType in _vis:
+        return _typeSize[curType]
+    _vis.add(curType)
+
+    struct = _structs.get(curType)
+    if struct is None:
+        raise TypeError(f"Undefined type {_structs} found when calculating size.")
+    
+    struct.size = 0
+    for memberType in struct.member_types:
+        struct.size += _CalcTypeSize(memberType)
+
+    _typeSize[curType] = struct.size
+    return struct.size
+
+
 class StructsManager:
     """
     Manages struct definitions and computes sizes in topological order.
@@ -28,155 +107,133 @@ class StructsManager:
     - struct types: size = sum(member sizes)
     """
 
+    _instance: Optional["StructsManager"] = None
+
+    def __new__(cls) -> "StructsManager":
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+
     def __init__(self) -> None:
-        self._structs: Dict[str, Struct] = {}
-        self._builtin_sizes: Dict[str, int] = {}
+        if getattr(self, "_initialized", False):
+            return
+        self._initialized = True
+        self._structs = _structs
+        self._typeDict = _typeDict
         self._sizes: Dict[str, int] = {}
 
-    def add_struct(self, struct_def: Struct) -> None:
-        self._structs[struct_def.name] = struct_def
+    @classmethod
+    def instance(cls) -> "StructsManager":
+        return cls()
 
+    # what: input a struct definition from libclang node
     def add_struct_from_node(self, node: Any) -> Struct:
         """
         Add a struct directly from a libclang node.
-        The node is expected to be a STRUCT_DECL cursor.
+        The node can be a STRUCT_DECL cursor or a TYPEDEF_DECL cursor
+        like: typedef struct { ... } A;
         """
-        name = self._extract_struct_name(node)
-        member_types = self._extract_member_types_from_node(node)
-        struct_def = Struct(name=name, member_types=member_types, node=node)
-        self._structs[name] = struct_def
+        struct_node, name = self._resolve_struct_node_and_name(node)
+        member_types = self._extract_member_types_from_node(struct_node)
+        struct_def = Struct(name=name, member_types=member_types, node=struct_node)
+        _structs[name] = struct_def
         return struct_def
 
     def get_struct(self, name: str) -> Struct | None:
-        return self._structs.get(name)
-
-    def set_builtin_size(self, type_name: str, size: int = 1) -> None:
-        self._builtin_sizes[type_name] = size
-
-    def compute_sizes(self) -> Dict[str, int]:
+        return _structs.get(name)
+    
+    def calculate_size(self):
         """
-        Compute sizes for all structs in topological order.
+        Calculate sizes for all structs in topological order.
+        This should be called once after all structs are added,
+        and before the first usage of the size of Structs.
         """
-        self._sizes.clear()
-        for struct_name in self._topo_order():
-            size = self._compute_struct_size(struct_name)
-            self._sizes[struct_name] = size
-            self._structs[struct_name].size = size
-        return dict(self._sizes)
-
+        for struct_name in _structs.keys():
+            if struct_name not in _vis:
+                _CalcTypeSize(struct_name)
+    
     def get_size(self, type_name: str) -> int:
-        """
-        Get size for any type name (builtin / pointer / array / struct).
-        """
-        type_name = type_name.strip()
-
-        # Pointer types
-        if type_name.endswith("*"):
-            return 1
-
-        # Array types: "T[n]"
-        if type_name.endswith("]") and "[" in type_name:
-            base, length = self._split_array_type(type_name)
-            return self.get_size(base) * length
-
-        # Builtin types
-        if type_name in self._builtin_sizes:
-            return self._builtin_sizes[type_name]
-
-        # Struct types
-        if type_name in self._structs:
-            if type_name not in self._sizes:
-                self._sizes[type_name] = self._compute_struct_size(type_name)
-            return self._sizes[type_name]
-
-        # Fallback
-        return 1
-
-    def _compute_struct_size(self, struct_name: str) -> int:
-        struct_def = self._structs[struct_name]
-        return sum(self.get_size(t) for t in struct_def.member_types)
+        return _CalcTypeSize(type_name)
 
     def _extract_struct_name(self, node: Any) -> str:
         name = getattr(node, "spelling", "") or ""
         if name:
-            return name
+            return f"struct {name}"
         type_obj = getattr(node, "type", None)
         type_name = getattr(type_obj, "spelling", "") if type_obj else ""
         if type_name:
-            return self._normalize_type_name(type_name)
+            t = self._normalize_type_name(type_name)
+            return t if t.startswith("struct ") else f"struct {t}"
         node_id = getattr(node, "hash", None) or id(node)
         return f"__anon_struct_{node_id}"
 
-    def _extract_member_types_from_node(self, node: Any) -> List[str]:
+    def _resolve_struct_node_and_name(self, node: Any) -> tuple[Any, str]:
+
+        is_typedef = (node.kind == CursorKind.TYPEDEF_DECL)
+
+        if is_typedef:
+            typedef_name = getattr(node, "spelling", "") or ""
+            struct_node = self._get_struct_decl_from_typedef(node) or node
+            struct_name = self._extract_struct_name(struct_node)
+            if typedef_name and not struct_name.startswith("__anon_struct_"):
+                self._typeDict[self._normalize_type_name(typedef_name)] = struct_name
+            return struct_node, struct_name
+
+        return node, self._extract_struct_name(node)
+
+    def _get_struct_decl_from_typedef(self, node: Any) -> Optional[Any]:
+        type_obj = getattr(node, "underlying_typedef_type", None)
+        if not type_obj:
+            return None
         try:
-            from clang.cindex import CursorKind
+            canonical = type_obj.get_canonical()
+            return canonical.get_declaration()
         except Exception:
-            CursorKind = None
+            return None
+
+    def _extract_member_types_from_node(self, node: Any) -> List[str]:
 
         member_types: List[str] = []
         for child in getattr(node, "get_children", lambda: [])():
-            if CursorKind is None:
-                kind_name = getattr(getattr(child, "kind", None), "name", None)
-                if kind_name != "FIELD_DECL":
-                    continue
-            else:
-                if child.kind != CursorKind.FIELD_DECL:
-                    continue
+            if child.kind != CursorKind.FIELD_DECL:
+                continue
 
             type_obj = getattr(child, "type", None)
             type_name = getattr(type_obj, "spelling", "") if type_obj else ""
             if not type_name:
                 continue
-            member_types.append(self._normalize_type_name(type_name))
+            member_types.append(self._resolve_alias(type_name))
 
         return member_types
 
-    def _topo_order(self) -> List[str]:
-        """
-        Topological order of structs based on member type dependencies.
-        """
-        visited: Set[str] = set()
-        temp: Set[str] = set()
-        order: List[str] = []
+    def _resolve_alias(self, type_name: str) -> str:
+        t = self._normalize_type_name(type_name)
 
-        def visit(name: str) -> None:
-            if name in visited:
-                return
-            if name in temp:
-                raise ValueError(f"Cycle detected in struct definitions at {name}")
+        # Preserve pointer suffixes
+        pointer_suffix = ""
+        while t.endswith("*"):
+            t = t[:-1].strip()
+            pointer_suffix += "*"
 
-            temp.add(name)
-            struct_def = self._structs[name]
-            for t in struct_def.member_types:
-                base_type = self._strip_array_and_pointer(t)
-                if base_type in self._structs:
-                    visit(base_type)
-            temp.remove(name)
-            visited.add(name)
-            order.append(name)
-
-        for name in self._structs.keys():
-            visit(name)
-
-        return order
-
-    def _strip_array_and_pointer(self, type_name: str) -> str:
-        t = type_name.strip()
-        if t.endswith("*"):
-            return t.rstrip("*").strip()
+        # Preserve array suffixes like "[10]" (outermost only)
+        array_suffix = ""
         if t.endswith("]") and "[" in t:
-            base, _ = self._split_array_type(t)
-            return base
-        return t
+            base = t[: t.rfind("[")].strip()
+            array_suffix = t[t.rfind("["):]
+            t = base
 
-    def _split_array_type(self, type_name: str) -> tuple[str, int]:
-        base = type_name[: type_name.rfind("[")].strip()
-        length_str = type_name[type_name.rfind("[") + 1 : -1].strip()
-        length = int(length_str) if length_str.isdigit() else 1
-        return self._normalize_type_name(base), length
+        seen = set()
+        while t in self._typeDict and t not in seen:
+            seen.add(t)
+            t = self._typeDict[t]
+
+        # If alias expands to something with array, keep it as is and append pointer suffix
+        t = self._normalize_type_name(t)
+        if array_suffix:
+            t = f"{t}{array_suffix}"
+
+        return f"{t}{pointer_suffix}"
 
     def _normalize_type_name(self, type_name: str) -> str:
-        t = type_name.strip()
-        if t.startswith("struct "):
-            t = t[len("struct "):].strip()
-        return t
+        return " ".join(type_name.strip().split())

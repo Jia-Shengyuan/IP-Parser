@@ -12,14 +12,17 @@ from clang.cindex import Index, CursorKind, TypeKind
 
 from models.variables import Variable, VARIABLE_DOMAIN, VARIABLE_KIND
 from models.functions import Function
+from models.structs import StructsManager
 
 class Parser:
     def __init__(self, project_path: str):
         self.project_path = os.path.abspath(project_path)
         self.global_vars: List[Variable] = []
         self.functions: List[Function] = []
+        self.structs = StructsManager.instance()
         self._seen_var_names = set() # Set of variable names for global deduplication
         self._seen_func_keys = set() # Set of (file_path, name) for function deduplication
+        self._seen_struct_nodes = set() # Set of (file_path, line, col) for struct deduplication
 
     def parse(self):
         """
@@ -35,6 +38,9 @@ class Parser:
             # Parse the translation unit
             translation_unit = index.parse(file_path, args=args)
             self._visit_root(translation_unit.cursor)
+
+        # Calculate struct sizes after all structs collected
+        self.structs.calculate_size()
 
     def _get_source_files(self) -> List[str]:
         """Recursive search for .c and .h files"""
@@ -58,6 +64,23 @@ class Parser:
                 self._extract_global_variable(child)
             elif child.kind == CursorKind.FUNCTION_DECL:
                 self._extract_function(child)
+            elif child.kind == CursorKind.STRUCT_DECL or child.kind == CursorKind.TYPEDEF_DECL:
+                self._extract_struct(child)
+
+    def _extract_struct(self, node):
+        location = node.location
+        if not location.file:
+            return
+        file_path = os.path.abspath(location.file.name)
+        if not file_path.startswith(self.project_path):
+            return
+
+        key = (file_path, location.line, location.column)
+        if key in self._seen_struct_nodes:
+            return
+        self._seen_struct_nodes.add(key)
+
+        self.structs.add_struct_from_node(node)
 
     def _extract_global_variable(self, node):
         # 1. Project path check
@@ -152,3 +175,6 @@ if __name__ == "__main__":
         print(f"Parsed {len(parser.functions)} functions")
         for f in parser.functions:
             print(f"  F: {f.name} in {f.source_file}")
+        print(f"Parsed {len(parser.structs._structs)} structs")
+        for s in parser.structs._structs.values():
+            print(f"  S: {s.name} (size={s.size})")
