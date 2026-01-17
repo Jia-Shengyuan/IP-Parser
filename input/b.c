@@ -7,3 +7,10 @@ void traverse() {
     int i = 5; // non-constant during compile time
     int y = x[i]; // should be viewed as x[?]
 }
+
+void call_add() {
+    int result = add(x[2], x[3]);
+    // int w = *p;
+    *p += 1;
+    // *p = (*p) + 1;
+}

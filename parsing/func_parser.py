@@ -30,15 +30,17 @@ class FuncParser:
 		self._mem = MemoryManager.instance()
 		self._pointer_map: Dict[str, Optional[int]] = {}
 		self._global_pointer_inits: Dict[str, Any] = {}
+		self._functions: Dict[str, tuple[Any, Function]] = {}
 
 	@classmethod
 	def instance(cls) -> "FuncParser":
 		return cls._instance if cls._instance is not None else cls()
 
-	def initialize(self, global_vars: list[Variable], global_pointer_inits: Dict[str, Any]) -> None:
+	def initialize(self, global_vars: list[Variable], global_pointer_inits: Dict[str, Any], function_nodes: list[tuple[Any, Function]]) -> None:
 		# Initialize pointer map for global pointers and apply global initializers.
 		self._pointer_map = {}
 		self._global_pointer_inits = global_pointer_inits
+		self._functions = {func.name: (node, func) for node, func in function_nodes}
 		for var in global_vars:
 			if var.is_pointer:
 				self._pointer_map[var.name] = None
@@ -117,9 +119,31 @@ class FuncParser:
 		"""
 		Parse a function node in sequential order and update Variable read/write sets.
 		"""
+		self._mem.clear_pointer_refs()
+		for pointer_name, init_cursor in self._global_pointer_inits.items():
+			target_addr = self._resolve_pointer_target_expr(init_cursor)
+			if target_addr is not None:
+				self._mem.add_pointer_ref(target_addr, pointer_name)
+
 		written: Dict[str, bool] = {}
 		pointer_map: Dict[str, Optional[int]] = dict(self._pointer_map)
-		func_prefix = f"<{func.name}>"
+		call_stack = set()
+		self._parse_function_with_context(node, func, func, pointer_map, written, call_stack)
+
+	def _parse_function_with_context(
+		self,
+		node,
+		current_func: Function,
+		root_func: Function,
+		pointer_map: Dict[str, Optional[int]],
+		written: Dict[str, bool],
+		call_stack: set[str]
+	) -> None:
+		# Parse with shared pointer map and root function attribution.
+		if current_func.name in call_stack:
+			return
+		call_stack.add(current_func.name)
+		func_prefix = f"<{current_func.name}>"
 
 		def resolve_pointer_key(name: Optional[str]) -> Optional[str]:
 			# Prefer function-local pointer name if present, otherwise global name.
@@ -137,8 +161,8 @@ class FuncParser:
 				return
 			name = block.var.name
 			if not written.get(name, False):
-				self._mem.read_memory(addr, func.name)
-				func.reads.add(name)
+				self._mem.read_memory(addr, root_func.name)
+				root_func.reads.add(name)
 
 		def mark_write(addr: int) -> None:
 			# Record a write for the variable at this address.
@@ -146,8 +170,8 @@ class FuncParser:
 			if block is None or block.var is None or block.var.is_pointer:
 				return
 			name = block.var.name
-			self._mem.write_memory(addr, func.name)
-			func.writes.add(name)
+			self._mem.write_memory(addr, root_func.name)
+			root_func.writes.add(name)
 			written[name] = True
 
 		def handle_access(name: str, nonconst_index: bool, read: bool, write: bool, read_before_write: bool = False) -> None:
@@ -190,6 +214,13 @@ class FuncParser:
 				base_name, nonconst = resolve_var_access(children[0])
 				if not base_name:
 					return None, False
+				ptr_key = resolve_pointer_key(base_name)
+				if ptr_key:
+					target_addr = pointer_map.get(ptr_key)
+					if target_addr is not None:
+						block = self._mem.get_block(target_addr)
+						if block is not None and block.var is not None:
+							base_name = block.var.name
 				return f"{base_name}.{cursor.spelling}", nonconst
 			if cursor.kind == CursorKind.ARRAY_SUBSCRIPT_EXPR:
 				children = list(cursor.get_children())
@@ -256,6 +287,11 @@ class FuncParser:
 
 		def handle_lvalue(cursor, is_compound: bool) -> None:
 			# Handle lvalue writes, including compound assignments.
+			if cursor.kind in FuncParser.UNWRAP_KINDS:
+				child = next(cursor.get_children(), None)
+				if child is not None:
+					handle_lvalue(child, is_compound)
+				return
 			if cursor.kind == CursorKind.UNARY_OPERATOR and get_operator(cursor) == "*":
 				child = next(cursor.get_children(), None)
 				ptr_name = resolve_pointer_name(child)
@@ -292,6 +328,10 @@ class FuncParser:
 						target_addr = resolve_pointer_target(init_child)
 						update_pointer_mapping(local_key, target_addr)
 						handle_expr(init_child)
+					return
+				init_child = next(cursor.get_children(), None)
+				if init_child is not None:
+					handle_expr(init_child)
 				return
 			
 			if cursor.kind == CursorKind.CALL_EXPR:
@@ -304,6 +344,15 @@ class FuncParser:
 						child = next(expr.get_children(), None)
 						collect_arg_reads(child)
 						return
+					if expr.kind == CursorKind.UNARY_OPERATOR and get_operator(expr) == "*":
+						child = next(expr.get_children(), None)
+						ptr_name = resolve_pointer_name(child)
+						ptr_key = resolve_pointer_key(ptr_name)
+						if ptr_key:
+							target_addr = pointer_map.get(ptr_key)
+							if target_addr is not None:
+								mark_read(target_addr)
+						return
 					name, _ = resolve_var_access(expr)
 					if name:
 						addr = self._mem.get_address(name)
@@ -311,12 +360,46 @@ class FuncParser:
 							block = self._mem.get_block(addr)
 							if block is not None and block.var is not None and not block.var.is_pointer:
 								mark_read(addr)
+							# Avoid double-counting base identifiers in subscript/member expressions.
+							if expr.kind in (CursorKind.ARRAY_SUBSCRIPT_EXPR, CursorKind.MEMBER_REF_EXPR):
+								return
 					for child in ordered_children(expr):
 						collect_arg_reads(child)
 
-				children = ordered_children(cursor)
-				for arg in children[1:]:
+				for arg in cursor.get_arguments():
 					collect_arg_reads(arg)
+
+				callee_name = cursor.spelling or ""
+				if not callee_name:
+					referenced = getattr(cursor, "referenced", None)
+					callee_name = getattr(referenced, "spelling", "") if referenced else ""
+
+				if callee_name and callee_name in self._functions:
+					callee_node, callee_func = self._functions[callee_name]
+					param_names = callee_func.params or []
+					arg_nodes = list(cursor.get_arguments())
+					updated_keys: Dict[str, Optional[int]] = {}
+
+					for i, param_name in enumerate(param_names):
+						if i >= len(arg_nodes):
+							break
+						target_addr = resolve_pointer_target(arg_nodes[i])
+						param_key = f"<{callee_func.name}>{param_name}"
+						updated_keys[param_key] = pointer_map.get(param_key)
+						update_pointer_mapping(param_key, target_addr)
+
+					self._parse_function_with_context(
+						callee_node,
+						callee_func,
+						root_func,
+						pointer_map,
+						written,
+						call_stack
+					)
+
+					for key, old_addr in updated_keys.items():
+						update_pointer_mapping(key, old_addr)
+
 				return
 			
 			if cursor.kind in (CursorKind.DECL_REF_EXPR, CursorKind.MEMBER_REF_EXPR, CursorKind.ARRAY_SUBSCRIPT_EXPR):
@@ -388,3 +471,5 @@ class FuncParser:
 		for child in ordered_children(node):
 			# Traverse function body in source order.
 			handle_expr(child)
+
+		call_stack.remove(current_func.name)

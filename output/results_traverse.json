@@ -1,0 +1,15 @@
+{
+  "function_name": "traverse",
+  "interface_semantics": {
+    "parameters": [],
+    "state": [],
+    "input": [
+      {
+        "name": "x",
+        "type": "int[10]"
+      }
+    ],
+    "output": [],
+    "inout": []
+  }
+}

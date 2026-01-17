@@ -1,0 +1,19 @@
+{
+  "function_name": "call_add",
+  "interface_semantics": {
+    "parameters": [],
+    "state": [],
+    "input": [],
+    "output": [],
+    "inout": [
+      {
+        "name": "x",
+        "type": "int[10]"
+      },
+      {
+        "name": "p",
+        "type": "int *"
+      }
+    ]
+  }
+}

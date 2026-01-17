@@ -4,6 +4,7 @@
 
 int x[10];
 int y;
+int *p;
 
 // signed long long a;
 

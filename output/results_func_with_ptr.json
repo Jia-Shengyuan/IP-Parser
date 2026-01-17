@@ -1,0 +1,15 @@
+{
+  "function_name": "func_with_ptr",
+  "interface_semantics": {
+    "parameters": [],
+    "state": [],
+    "input": [],
+    "output": [
+      {
+        "name": "x",
+        "type": "int[10]"
+      }
+    ],
+    "inout": []
+  }
+}

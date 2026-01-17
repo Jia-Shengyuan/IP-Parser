@@ -24,6 +24,7 @@ class Parser:
         self.global_vars: List[Variable] = []
         self.functions: List[Function] = []
         self.structs = StructsManager.instance()
+        self._global_var_map: Dict[str, Variable] = {}
         self._seen_var_names = set() # Set of variable names for global deduplication
         self._seen_func_keys = set() # Set of (file_path, name) for function deduplication
         self._seen_struct_nodes = set() # Set of (file_path, line, col) for struct deduplication
@@ -53,7 +54,7 @@ class Parser:
         memMana.allocate_globals(self.global_vars)
 
         func_parser = FuncParser.instance()
-        func_parser.initialize(self.global_vars, self._global_pointer_inits)
+        func_parser.initialize(self.global_vars, self._global_pointer_inits, self._function_nodes)
 
         for func_node, func in self._function_nodes:
             func_parser.parse_function(func_node, func)
@@ -117,8 +118,13 @@ class Parser:
         name = node.spelling
         if not name:
             return
-            
-        if name in self._seen_var_names:
+			
+        if name in self._global_var_map:
+            # Allow later definition/initializer (e.g. weak symbol in header).
+            if node.type.get_canonical().kind == TypeKind.POINTER:
+                init_child = next(node.get_children(), None)
+                if init_child is not None:
+                    self._global_pointer_inits[name] = init_child
             return
         
         # 3. Note: We do NOT check is_definition() here, treating all declarations as potential globals
@@ -151,6 +157,7 @@ class Parser:
             points_to={}
         )
         self.global_vars.append(var)
+        self._global_var_map[name] = var
 
         if is_pointer:
             init_child = next(node.get_children(), None)
@@ -185,9 +192,17 @@ class Parser:
         source_file = os.path.relpath(file_path, self.project_path)
 
         # Only parsing basic info for now as requested
+        params = []
+        for child in node.get_children():
+            if child.kind == CursorKind.PARM_DECL:
+                param_name = child.spelling
+                if param_name:
+                    params.append(param_name)
+
         func = Function(
             name=name,
-            source_file=source_file
+            source_file=source_file,
+            params=params
         )
         self.functions.append(func)
         self._function_nodes.append((node, func))

@@ -58,6 +58,11 @@ class MemoryManager:
 			raise IndexError(f"Invalid memory address: {addr}, max address is {len(self._blocks)-1}")
 		return self._blocks[addr]
 
+	def iter_blocks(self) -> Iterable[MemoryBlock]:
+		for block in self._blocks:
+			if block is not None:
+				yield block
+
 	def _mark_read(self, addr: int, func: str):
 		self._blocks[addr].var.mark_read(func)
 
@@ -75,6 +80,10 @@ class MemoryManager:
 		if block is None:
 			return
 		block.pointers.discard(pointer_name)
+
+	def clear_pointer_refs(self) -> None:
+		for block in self.iter_blocks():
+			block.pointers.clear()
 
 	# what: should be called when a function reads a variable in the abstract memory
 	def read_memory(self, addr: int, func: str):
