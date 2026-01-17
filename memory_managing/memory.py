@@ -13,6 +13,7 @@ class MemoryBlock:
 	"""
 	addr: int
 	parent: int
+	var: Variable
 	ptr_value: Optional[int] = None  # If this block is a pointer, the address it points to
 	pointers: List[Any] = field(default_factory=list)  # Variables pointing to this block
 
@@ -42,27 +43,7 @@ class MemoryManager:
 
 	@classmethod
 	def instance(cls) -> "MemoryManager":
-		return cls()
-
-	def _ensure_capacity(self, max_addr: int) -> None:
-		while len(self._blocks) <= max_addr:
-			self._blocks.append(None)
-			
-	def _alloc_blocks(self, count: int, parent: int) -> List[int]:
-		if count <= 0:
-			raise ValueError("count must be positive")
-
-		start_addr = self._next_addr
-		end_addr = self._next_addr + count - 1
-		self._ensure_capacity(end_addr)
-
-		addrs = []
-		for addr in range(start_addr, end_addr + 1):
-			self._blocks[addr] = MemoryBlock(addr=addr, parent=parent)
-			addrs.append(addr)
-
-		self._next_addr += count
-		return addrs
+		return cls._instance if cls._instance is not None else cls()
 
 	def allocate_globals(self, variables: List[Variable]):
 		"""
@@ -71,10 +52,11 @@ class MemoryManager:
 		"""		
 		structs_manager = StructsManager.instance()
 		for var in variables:
-			addr = self._allocate(var.raw_type, parent=0, structs_manager=structs_manager)
+			addr = self._allocate(var.name, var.raw_type, parent=0, structs_manager=structs_manager, variable=var)
 			var.address = addr
+			# self._blocks[addr].var = var  # Update with the original variable info
 
-	def _allocate(self, type_name: str, parent: int, structs_manager: StructsManager) -> int:
+	def _allocate(self, var_name: str, type_name: str, parent: int, structs_manager: StructsManager, variable: Variable | None = None) -> int:
 		
 		"""
 		Allocate a variable by its type name, recursively allocating children.
@@ -84,7 +66,15 @@ class MemoryManager:
 		type_name = structs_manager.get_decoded_name(type_name)
 
 		addr = self._next_addr
-		self._blocks.append(MemoryBlock(addr = addr, parent=parent))
+		self._blocks.append(MemoryBlock(addr = addr, parent=parent,
+								    	var = variable if variable is not None else Variable(
+			name = var_name,
+			raw_type = type_name,
+			kind = structs_manager.get_type_kind(type_name),
+			domain = VARIABLE_DOMAIN.GLOBAL,
+			is_pointer = structs_manager.is_pointer(type_name),
+			address=addr
+		)))
 		self._next_addr += 1
 
 		# case: basic type, including builtins and pointers -> finished
@@ -94,8 +84,8 @@ class MemoryManager:
 		# case: array type
 		if structs_manager.is_array(type_name):
 			base_type, length = structs_manager.parse_array_type(type_name)
-			for _ in range(length):
-				self._allocate(base_type, parent=addr, structs_manager=structs_manager)
+			for i in range(length):
+				self._allocate(f"{var_name}[{i}]", base_type, parent=addr, structs_manager=structs_manager)
 			return addr
 		
 		# case: struct type
@@ -104,8 +94,8 @@ class MemoryManager:
 			struct = structs_manager.get_struct(f"struct {type_name}")
 
 		if struct is not None:
-			for member_type in struct.member_types:
-				self._allocate(member_type, parent=addr, structs_manager=structs_manager)
+			for (member_type, member_name) in zip(struct.member_types, struct.member_names):
+				self._allocate(var_name + "." + member_name, member_type, parent=addr, structs_manager=structs_manager)
 			return addr
 		
 		raise TypeError(f"Unknown type for allocation: {type_name}")

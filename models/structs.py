@@ -5,15 +5,19 @@ from typing import Dict, List, Set, Iterable, Any, Optional
 
 from clang.cindex import CursorKind
 
+from models.variables import VARIABLE_DOMAIN, VARIABLE_KIND
+
 @dataclass
 class Struct:
     """
     Represents a struct type.
 
     member_types: list of member type names (order preserved).
+    member_names: list of member variable names (order preserved).
     """
     name: str
     member_types: List[str] = field(default_factory=list)
+    member_names: List[str] = field(default_factory=list)
     size: int = 0
     node: Optional[Any] = None
 
@@ -147,7 +151,13 @@ class StructsManager:
 
         struct_node, name = self._resolve_struct_node_and_name(node)
         member_types = self._extract_member_types_from_node(struct_node)
-        struct_def = Struct(name=name, member_types=member_types, node=struct_node)
+        member_names = self._extract_member_names_from_node(struct_node)
+        struct_def = Struct(
+            name=name,
+            member_types=member_types,
+            member_names=member_names,
+            node=struct_node
+        )
         _structs[name] = struct_def
         return struct_def
 
@@ -167,6 +177,20 @@ class StructsManager:
     def is_struct(self, name: str) -> bool:
         name = self.get_decoded_name(name)
         return name in _structs
+    
+    def is_pointer(self, name: str) -> bool:
+        name = self.get_decoded_name(name)
+        return name.endswith("*")
+    
+    def get_type_kind(self, name: str) -> VARIABLE_KIND:
+        name = self.get_decoded_name(name)
+        if self.is_pointer(name):
+            return VARIABLE_KIND.POINTER
+        if self.is_array(name):
+            return VARIABLE_KIND.ARRAY
+        if self.is_struct(name):
+            return VARIABLE_KIND.RECORD
+        return VARIABLE_KIND.BUILTIN
     
     def parse_array_type(self, type_name: str) -> tuple[str, int]:
         name = self.get_decoded_name(type_name)
@@ -248,6 +272,17 @@ class StructsManager:
             member_types.append(self._resolve_alias(type_name))
 
         return member_types
+
+    def _extract_member_names_from_node(self, node: Any) -> List[str]:
+
+        member_names: List[str] = []
+        for child in getattr(node, "get_children", lambda: [])():
+            if child.kind != CursorKind.FIELD_DECL:
+                continue
+            name = getattr(child, "spelling", "") or ""
+            member_names.append(name)
+
+        return member_names
 
     # ai function
     def _resolve_alias(self, type_name: str) -> str:
