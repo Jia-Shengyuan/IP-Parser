@@ -6,8 +6,8 @@ int add(int a, int b) {
     return a + b;
 }
 
-double sq(double x) {
-    return x * x;
+double sq(double v) {
+    return v * v;
 }
 
 struct Vector2 {
@@ -25,7 +25,15 @@ typedef struct VEC_3X3X3 {
     Vector3 x[3];
     struct Vector2 *y[3];
     Vector3 z[3];
-} Huge; // abstract size = 3*3 + 3 + 3*3 = 21
+} Huge;
 
 Vector3 vec[2];
 Integer integer;
+
+void scaleX() {
+    vec[0].x *= integer;
+}
+
+void fun2() {
+    x[4] = integer;
+}

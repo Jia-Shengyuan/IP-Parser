@@ -39,4 +39,11 @@ if __name__ == "__main__":
         for addr, block in enumerate(memMana._blocks):
             if addr == 0:
                 continue  # Skip address 0 which is unused
-            print(f"  M: Addr {addr}: {block.var.name} (type {block.var.raw_type}, parent={block.parent}, size={parser.structs.get_size(block.var.raw_type)})")
+            read_funcs = sorted(block.var.read)
+            write_funcs = sorted(block.var.write)
+            print(
+                f"  M: Addr {addr}: {block.var.name} "
+                f"(type {block.var.raw_type}, parent={block.parent}, size={parser.structs.get_size(block.var.raw_type)})"
+            )
+            print(f"     R: {', '.join(read_funcs) if read_funcs else '-'}")
+            print(f"     W: {', '.join(write_funcs) if write_funcs else '-'}")

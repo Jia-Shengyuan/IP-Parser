@@ -4,9 +4,11 @@ Parsed 5 global variables
   G: vec: Vector3[2], addr=13, size=9
   G: integer: Integer, addr=22, size=1
   G: p: int *, addr=23, size=1
-Parsed 2 functions
+Parsed 4 functions
   F: add in a.c
   F: sq in a.c
+  F: scaleX in a.c
+  F: fun2 in a.c
 Parsed 3 structs
   S: struct Vector2 (size=3)
   S: struct Vector3 (size=4)
@@ -14,25 +16,71 @@ Parsed 3 structs
 
 Memory Blocks:
   M: Addr 1: x (type int[10], parent=0, size=11)
+     R: -
+     W: fun2
   M: Addr 2: x[0] (type int, parent=1, size=1)
+     R: -
+     W: -
   M: Addr 3: x[1] (type int, parent=1, size=1)
+     R: -
+     W: -
   M: Addr 4: x[2] (type int, parent=1, size=1)
+     R: -
+     W: -
   M: Addr 5: x[3] (type int, parent=1, size=1)
+     R: -
+     W: -
   M: Addr 6: x[4] (type int, parent=1, size=1)
+     R: -
+     W: fun2
   M: Addr 7: x[5] (type int, parent=1, size=1)
+     R: -
+     W: -
   M: Addr 8: x[6] (type int, parent=1, size=1)
+     R: -
+     W: -
   M: Addr 9: x[7] (type int, parent=1, size=1)
+     R: -
+     W: -
   M: Addr 10: x[8] (type int, parent=1, size=1)
+     R: -
+     W: -
   M: Addr 11: x[9] (type int, parent=1, size=1)
+     R: -
+     W: -
   M: Addr 12: y (type int, parent=0, size=1)
+     R: -
+     W: -
   M: Addr 13: vec (type Vector3[2], parent=0, size=9)
+     R: scaleX
+     W: scaleX
   M: Addr 14: vec[0] (type struct Vector3, parent=13, size=4)
+     R: scaleX
+     W: scaleX
   M: Addr 15: vec[0].x (type int, parent=14, size=1)
+     R: scaleX
+     W: scaleX
   M: Addr 16: vec[0].y (type int, parent=14, size=1)
+     R: -
+     W: -
   M: Addr 17: vec[0].z (type int, parent=14, size=1)
+     R: -
+     W: -
   M: Addr 18: vec[1] (type struct Vector3, parent=13, size=4)
+     R: -
+     W: -
   M: Addr 19: vec[1].x (type int, parent=18, size=1)
+     R: -
+     W: -
   M: Addr 20: vec[1].y (type int, parent=18, size=1)
+     R: -
+     W: -
   M: Addr 21: vec[1].z (type int, parent=18, size=1)
+     R: -
+     W: -
   M: Addr 22: integer (type Integer, parent=0, size=1)
+     R: fun2, scaleX
+     W: -
   M: Addr 23: p (type int *, parent=0, size=1)
+     R: -
+     W: -
