@@ -1,6 +1,6 @@
 import sys
 import os
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 
 # Allow importing from models directory by adding parent directory to sys.path
 current_dir = os.path.dirname(os.path.abspath(__file__))
