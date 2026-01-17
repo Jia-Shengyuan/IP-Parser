@@ -40,3 +40,18 @@ if __name__ == "__main__":
             if addr == 0:
                 continue  # Skip address 0 which is unused
             print(f"  M: Addr {addr}: {block.var.name} (type {block.var.raw_type}, parent={block.parent}, size={parser.structs.get_size(block.var.raw_type)})")
+
+        # 输出调用图
+        print("\nCall Graph:")
+        call_graph = parser.get_call_graph_dict()
+        for caller, callees in call_graph.items():
+            if callees:
+                print(f"  {caller} -> {', '.join(callees)}")
+            else:
+                print(f"  {caller} -> (none)")
+
+        # 输出逆拓扑排序
+        print("\nReverse Topological Order (leaf functions first):")
+        topo_order = parser.get_topological_order()
+        for i, func_name in enumerate(topo_order):
+            print(f"  {i+1}. {func_name}")
