@@ -35,15 +35,3 @@ class Variable:
     def mark_write(self, function_name: str):
         if function_name not in self.write:
             self.write.add(function_name)
-
-# class VariablesManager:
-
-#     def __init__(self):
-#         self._variables: Dict[str, Variable] = dict()
-
-#     def SetVariables(self, variables: List[Variable]):
-#         for var in variables:
-#             self._variables[var.name] = var
-    
-#     def GetVariable(self, name: str) -> Variable | None:
-#         return self._variables.get(name, None)

@@ -184,11 +184,11 @@ class StructsManager:
     
     def get_type_kind(self, name: str) -> VARIABLE_KIND:
         name = self.get_decoded_name(name)
-        if self.is_pointer(name):
+        if name.endswith("*"):
             return VARIABLE_KIND.POINTER
-        if self.is_array(name):
+        if name.endswith("]") and "[" in name:
             return VARIABLE_KIND.ARRAY
-        if self.is_struct(name):
+        if name in _structs:
             return VARIABLE_KIND.RECORD
         return VARIABLE_KIND.BUILTIN
     
@@ -312,6 +312,3 @@ class StructsManager:
             t = f"{t}{array_suffix}"
 
         return f"{t}{pointer_suffix}"
-
-    # def _normalize_type_name(self, type_name: str) -> str:
-        # return " ".join(type_name.strip().split())

@@ -40,4 +40,6 @@ void fun2() {
     x[1] = 10;
     int *pptr = &x[4];
     *pptr = integer;
+    pptr = ptr;
+    *pptr = 20;
 }

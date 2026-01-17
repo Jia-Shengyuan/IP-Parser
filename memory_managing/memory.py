@@ -58,33 +58,6 @@ class MemoryManager:
 			raise IndexError(f"Invalid memory address: {addr}, max address is {len(self._blocks)-1}")
 		return self._blocks[addr]
 
-	def iter_blocks(self) -> Iterable[MemoryBlock]:
-		for block in self._blocks:
-			if block is not None:
-				yield block
-
-	# def get_children_addrs(self, addr: int) -> List[int]:
-		# return self.get_descendant_addrs(addr)
-
-	def get_descendant_addrs(self, addr: int) -> List[int]:
-		block = self.get_block(addr)
-		if block is None or block.var is None:
-			return []
-		structs_manager = StructsManager.instance()
-		total_size = structs_manager.get_size(block.var.raw_type)
-		if total_size == 1:
-			return []
-		return list(range(addr + 1, addr + total_size + 1))
-
-	def get_ancestor_addrs(self, addr: int) -> List[int]:
-		ancestors: List[int] = []
-		block = self.get_block(addr)
-		while block is not None and block.parent != 0:
-			parent = block.parent
-			ancestors.append(parent)
-			block = self.get_block(parent)
-		return ancestors
-
 	def _mark_read(self, addr: int, func: str):
 		self._blocks[addr].var.mark_read(func)
 

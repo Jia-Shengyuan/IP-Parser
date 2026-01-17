@@ -27,7 +27,7 @@ Memory Blocks:
      W: fun2
   M: Addr 4: x[2] (type int, parent=1, size=1)
      R: -
-     W: -
+     W: fun2
   M: Addr 5: x[3] (type int, parent=1, size=1)
      R: -
      W: -
