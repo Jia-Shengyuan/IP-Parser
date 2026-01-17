@@ -3,7 +3,7 @@ This module handles the allocation for abstract memory location.
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Iterable, Tuple, Any, Dict
+from typing import List, Optional, Iterable, Tuple, Any, Dict, Set
 from models import *
 
 @dataclass
@@ -15,7 +15,7 @@ class MemoryBlock:
 	parent: int
 	var: Variable
 	ptr_value: Optional[int] = None  # If this block is a pointer, the address it points to
-	pointers: List[Any] = field(default_factory=list)  # Variables pointing to this block
+	pointers: Set[str] = field(default_factory=set)  # Pointer variable names pointing to this block
 
 
 class MemoryManager:
@@ -91,6 +91,18 @@ class MemoryManager:
 	def _mark_write(self, addr: int, func: str):
 		self._blocks[addr].var.mark_write(func)
 
+	def add_pointer_ref(self, target_addr: int, pointer_name: str) -> None:
+		block = self.get_block(target_addr)
+		if block is None:
+			return
+		block.pointers.add(pointer_name)
+
+	def remove_pointer_ref(self, target_addr: int, pointer_name: str) -> None:
+		block = self.get_block(target_addr)
+		if block is None:
+			return
+		block.pointers.discard(pointer_name)
+
 	# what: should be called when a function reads a variable in the abstract memory
 	def read_memory(self, addr: int, func: str):
 		
@@ -101,7 +113,9 @@ class MemoryManager:
 		
 		# read to a memory is viewed as reading all the pointers pointing towards it
 		for pointer in block.pointers:
-			self._mark_read(pointer, func)
+			pointer_addr = self.get_address(pointer)
+			if pointer_addr is not None:
+				self._mark_read(pointer_addr, func)
 
 		size = StructsManager.instance().get_size(block.var.raw_type)
 		for i in range(size):
@@ -113,7 +127,9 @@ class MemoryManager:
 		block = self._blocks[addr]
 
 		for pointer in block.pointers:
-			self._mark_write(pointer, func)
+			pointer_addr = self.get_address(pointer)
+			if pointer_addr is not None:
+				self._mark_write(pointer_addr, func)
 
 		size = StructsManager.instance().get_size(block.var.raw_type)
 		for i in range(size):

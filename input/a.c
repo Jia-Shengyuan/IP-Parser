@@ -35,5 +35,9 @@ void scaleX() {
 }
 
 void fun2() {
-    x[4] = integer;
+    // x[4] = integer;
+    int *ptr = &x[2];
+    x[1] = 10;
+    int *pptr = &x[4];
+    *pptr = integer;
 }

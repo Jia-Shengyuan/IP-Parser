@@ -27,6 +27,8 @@ class Parser:
         self._seen_func_keys = set() # Set of (file_path, name) for function deduplication
         self._seen_struct_nodes = set() # Set of (file_path, line, col) for struct deduplication
         self._function_nodes = []  # List of (Cursor, Function)
+        self._pointer_map: Dict[str, Optional[int]] = {}  # pointer var name -> target address
+        self._global_pointer_inits: Dict[str, Any] = {}  # pointer var name -> init cursor
 
     def parse(self):
         """
@@ -49,6 +51,16 @@ class Parser:
 
         memMana = MemoryManager.instance()
         memMana.allocate_globals(self.global_vars)
+
+        for var in self.global_vars:
+            if var.is_pointer:
+                self._pointer_map[var.name] = None
+
+        for pointer_name, init_cursor in self._global_pointer_inits.items():
+            target_addr = self._resolve_pointer_target_expr(init_cursor, memMana)
+            if target_addr is not None:
+                self._pointer_map[pointer_name] = target_addr
+                memMana.add_pointer_ref(target_addr, pointer_name)
 
         for func_node, func in self._function_nodes:
             self.parse_function(func_node, func)
@@ -147,6 +159,81 @@ class Parser:
         )
         self.global_vars.append(var)
 
+        if is_pointer:
+            init_child = next(node.get_children(), None)
+            if init_child is not None:
+                self._global_pointer_inits[name] = init_child
+
+    def _get_integer_literal_expr(self, cursor) -> Optional[str]:
+        # Extract a constant integer literal from a cursor if present.
+        if cursor is None:
+            return None
+        if cursor.kind == CursorKind.INTEGER_LITERAL:
+            tokens = [t.spelling for t in cursor.get_tokens()]
+            return tokens[0] if tokens else None
+        tokens = [t.spelling for t in cursor.get_tokens()]
+        if tokens and tokens[0].isdigit():
+            return tokens[0]
+        return None
+
+    def _resolve_var_access_expr(self, cursor) -> Optional[str]:
+        # Resolve a variable access expression to a fully-qualified name.
+        if cursor is None:
+            return None
+        unwrap_kinds = (
+            CursorKind.UNEXPOSED_EXPR,
+            CursorKind.PAREN_EXPR,
+            CursorKind.CSTYLE_CAST_EXPR,
+        )
+        if cursor.kind in unwrap_kinds:
+            child = next(cursor.get_children(), None)
+            return self._resolve_var_access_expr(child)
+        if cursor.kind == CursorKind.DECL_REF_EXPR:
+            return cursor.spelling
+        if cursor.kind == CursorKind.MEMBER_REF_EXPR:
+            children = list(cursor.get_children())
+            if not children:
+                return None
+            base_name = self._resolve_var_access_expr(children[0])
+            if not base_name:
+                return None
+            return f"{base_name}.{cursor.spelling}"
+        if cursor.kind == CursorKind.ARRAY_SUBSCRIPT_EXPR:
+            children = list(cursor.get_children())
+            if len(children) < 2:
+                return None
+            base_name = self._resolve_var_access_expr(children[0])
+            if not base_name:
+                return None
+            index_val = self._get_integer_literal_expr(children[1])
+            if index_val is None:
+                return base_name
+            return f"{base_name}[{index_val}]"
+        return None
+
+    def _resolve_pointer_target_expr(self, expr, mem: MemoryManager) -> Optional[int]:
+        # Resolve pointer initializer/assignment expression to a concrete address.
+        if expr is None:
+            return None
+        unwrap_kinds = (
+            CursorKind.UNEXPOSED_EXPR,
+            CursorKind.PAREN_EXPR,
+            CursorKind.CSTYLE_CAST_EXPR,
+        )
+        if expr.kind in unwrap_kinds:
+            child = next(expr.get_children(), None)
+            return self._resolve_pointer_target_expr(child, mem)
+        if expr.kind == CursorKind.UNARY_OPERATOR:
+            tokens = [t.spelling for t in expr.get_tokens()]
+            if "&" in tokens:
+                child = next(expr.get_children(), None)
+                name = self._resolve_var_access_expr(child)
+                return mem.get_address(name) if name else None
+        if expr.kind == CursorKind.DECL_REF_EXPR:
+            pointer_name = expr.spelling
+            return self._pointer_map.get(pointer_name)
+        return None
+
     def _extract_function(self, node):
         # Extract function definition metadata and store node for later analysis.
         # 1. Definition check (keep skipping prototypes for functions)
@@ -189,6 +276,7 @@ class Parser:
         # Sequentially walk the AST and mark read/write on global variables.
         mem = MemoryManager.instance()
         written: Dict[str, bool] = {}
+        pointer_map: Dict[str, Optional[int]] = dict(self._pointer_map)
 
         def mark_read(addr: int) -> None:
             # Record a read for the variable at this address.
@@ -269,18 +357,82 @@ class Parser:
                 return f"{base_name}[{index_val}]", False
             return None, False
 
+        def resolve_pointer_name(cursor) -> Optional[str]:
+            # Resolve a pointer variable name from an expression.
+            if cursor is None:
+                return None
+            unwrap_kinds = (
+                CursorKind.UNEXPOSED_EXPR,
+                CursorKind.PAREN_EXPR,
+                CursorKind.CSTYLE_CAST_EXPR,
+            )
+            if cursor.kind in unwrap_kinds:
+                child = next(cursor.get_children(), None)
+                return resolve_pointer_name(child)
+            if cursor.kind == CursorKind.DECL_REF_EXPR:
+                return cursor.spelling
+            return None
+
+        def update_pointer_mapping(pointer_name: str, target_addr: Optional[int]) -> None:
+            # Update pointer mapping and memory back-references.
+            old_addr = pointer_map.get(pointer_name)
+            if old_addr is not None:
+                mem.remove_pointer_ref(old_addr, pointer_name)
+            pointer_map[pointer_name] = target_addr
+            if target_addr is not None:
+                mem.add_pointer_ref(target_addr, pointer_name)
+
         def get_operator(cursor) -> str:
             # Detect the operator token for a given cursor.
             tokens = [t.spelling for t in cursor.get_tokens()]
-            for op in ["+=", "-=", "*=", "/=", "%=", "<<=", ">>=", "&=", "|=", "^=", "==", "=", "++", "--"]:
+            for op in [
+                "+=", "-=", "*=", "/=", "%=", "<<=", ">>=", "&=", "|=", "^=",
+                "==", "=", "++", "--", "*", "&"
+            ]:
                 if op in tokens:
                     return op
             return ""
 
+        def resolve_pointer_target(expr) -> Optional[int]:
+            # Resolve a pointer initializer/assignment target to an address.
+            if expr is None:
+                return None
+            unwrap_kinds = (
+                CursorKind.UNEXPOSED_EXPR,
+                CursorKind.PAREN_EXPR,
+                CursorKind.CSTYLE_CAST_EXPR,
+            )
+            if expr.kind in unwrap_kinds:
+                child = next(expr.get_children(), None)
+                return resolve_pointer_target(child)
+            if expr.kind == CursorKind.UNARY_OPERATOR and get_operator(expr) == "&":
+                child = next(expr.get_children(), None)
+                if child is None:
+                    return None
+                name, _ = resolve_var_access(child)
+                return mem.get_address(name) if name else None
+            ptr_name = resolve_pointer_name(expr)
+            if ptr_name is not None and ptr_name in pointer_map:
+                return pointer_map.get(ptr_name)
+            return None
+
         def handle_lvalue(cursor, is_compound: bool) -> None:
             # Handle lvalue writes, including compound assignments.
+            if cursor.kind == CursorKind.UNARY_OPERATOR and get_operator(cursor) == "*":
+                child = next(cursor.get_children(), None)
+                ptr_name = resolve_pointer_name(child)
+                if ptr_name and ptr_name in pointer_map:
+                    target_addr = pointer_map.get(ptr_name)
+                    if target_addr is not None:
+                        if is_compound:
+                            mark_read(target_addr)
+                        mark_write(target_addr)
+                return
             name, nonconst = resolve_var_access(cursor)
             if name is None:
+                return
+            if name in pointer_map:
+                # Pointer assignment should not count as read/write on pointer itself.
                 return
             if is_compound:
                 handle_access(name, nonconst, read=True, write=True, read_before_write=True)
@@ -289,6 +441,17 @@ class Parser:
 
         def handle_expr(cursor) -> None:
             # Walk expression nodes and apply read/write rules.
+            if cursor.kind == CursorKind.VAR_DECL:
+                # Track local pointer declarations and initializers.
+                var_name = cursor.spelling
+                if var_name and cursor.type.kind == TypeKind.POINTER:
+                    pointer_map[var_name] = None
+                    init_child = next(cursor.get_children(), None)
+                    if init_child is not None:
+                        target_addr = resolve_pointer_target(init_child)
+                        update_pointer_mapping(var_name, target_addr)
+                        handle_expr(init_child)
+                return
             if cursor.kind == CursorKind.CALL_EXPR:
                 return
             if cursor.kind in (CursorKind.DECL_REF_EXPR, CursorKind.MEMBER_REF_EXPR, CursorKind.ARRAY_SUBSCRIPT_EXPR):
@@ -302,6 +465,15 @@ class Parser:
                 child = next(cursor.get_children(), None)
                 if child is None:
                     return
+                if op == "*":
+                    ptr_name = resolve_pointer_name(child)
+                    if ptr_name and ptr_name in pointer_map:
+                        target_addr = pointer_map.get(ptr_name)
+                        if target_addr is not None:
+                            mark_read(target_addr)
+                    return
+                if op == "&":
+                    return
                 if op in ("++", "--"):
                     handle_lvalue(child, is_compound=True)
                     return
@@ -314,6 +486,13 @@ class Parser:
                 if len(children) >= 2:
                     lhs, rhs = children[0], children[1]
                     if op == "=":
+                        lhs_name, _ = resolve_var_access(lhs)
+                        if lhs_name and lhs_name in pointer_map:
+                            # Pointer assignment: update mapping without read/write on pointer.
+                            target_addr = resolve_pointer_target(rhs)
+                            update_pointer_mapping(lhs_name, target_addr)
+                            handle_expr(rhs)
+                            return
                         handle_lvalue(lhs, is_compound=False)
                         handle_expr(rhs)
                         return
