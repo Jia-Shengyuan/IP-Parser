@@ -6,6 +6,13 @@ from models.functions import Function
 from models.variables import Variable
 from memory_managing.memory import MemoryManager
 
+"""
+This class is HUGE and looks like a pile of shit.
+However, its written by AI, and I have no idea how it works inside, nor how to split it 
+into smaller parts. The logic in it are also complex and contains a lot of libclang.
+So maybe I can only ask the AI to modify things in it.
+"""
+
 
 class FuncParser:
 
@@ -36,8 +43,8 @@ class FuncParser:
 	def instance(cls) -> "FuncParser":
 		return cls._instance if cls._instance is not None else cls()
 
+	# Initialize pointer map for global pointers and apply global initializers.
 	def initialize(self, global_vars: list[Variable], global_pointer_inits: Dict[str, Any], function_nodes: list[tuple[Any, Function]]) -> None:
-		# Initialize pointer map for global pointers and apply global initializers.
 		self._pointer_map = {}
 		self._global_pointer_inits = global_pointer_inits
 		self._functions = {func.name: (node, func) for node, func in function_nodes}
@@ -51,12 +58,12 @@ class FuncParser:
 				self._pointer_map[pointer_name] = target_addr
 				self._mem.add_pointer_ref(target_addr, pointer_name)
 
+	# Aggregate child read/write information to parents.
 	def finalize(self) -> None:
-		# Aggregate child read/write information to parents.
 		self._mem.analyze_memories()
 
+	# Extract a constant integer literal from a cursor if present.
 	def _get_integer_literal_expr(self, cursor) -> Optional[str]:
-		# Extract a constant integer literal from a cursor if present.
 		if cursor is None:
 			return None
 		if cursor.kind == CursorKind.INTEGER_LITERAL:
@@ -67,8 +74,8 @@ class FuncParser:
 			return tokens[0]
 		return None
 
+	# Resolve a variable access expression to a fully-qualified name.
 	def _resolve_var_access_expr(self, cursor) -> Optional[str]:
-		# Resolve a variable access expression to a fully-qualified name.
 		if cursor is None:
 			return None
 		if cursor.kind in self.UNWRAP_KINDS:
@@ -97,8 +104,8 @@ class FuncParser:
 			return f"{base_name}[{index_val}]"
 		return None
 
+	# Resolve pointer initializer/assignment expression to a concrete address.
 	def _resolve_pointer_target_expr(self, expr) -> Optional[int]:
-		# Resolve pointer initializer/assignment expression to a concrete address.
 		if expr is None:
 			return None
 		if expr.kind in self.UNWRAP_KINDS:
@@ -115,10 +122,8 @@ class FuncParser:
 			return self._pointer_map.get(pointer_name)
 		return None
 
+	# Parse a function node in sequential order and update Variable read/write sets.
 	def parse_function(self, node, func: Function) -> None:
-		"""
-		Parse a function node in sequential order and update Variable read/write sets.
-		"""
 		self._mem.clear_pointer_refs()
 		for pointer_name, init_cursor in self._global_pointer_inits.items():
 			target_addr = self._resolve_pointer_target_expr(init_cursor)
@@ -130,6 +135,7 @@ class FuncParser:
 		call_stack = set()
 		self._parse_function_with_context(node, func, func, pointer_map, written, call_stack)
 
+	# Parse with shared pointer map and root function attribution.
 	def _parse_function_with_context(
 		self,
 		node,
@@ -139,14 +145,13 @@ class FuncParser:
 		written: Dict[str, bool],
 		call_stack: set[str]
 	) -> None:
-		# Parse with shared pointer map and root function attribution.
 		if current_func.name in call_stack:
 			return
 		call_stack.add(current_func.name)
 		func_prefix = f"<{current_func.name}>"
 
+		# Prefer function-local pointer name if present, otherwise global name.
 		def resolve_pointer_key(name: Optional[str]) -> Optional[str]:
-			# Prefer function-local pointer name if present, otherwise global name.
 			if not name:
 				return None
 			local_key = f"{func_prefix}{name}"
@@ -154,8 +159,8 @@ class FuncParser:
 				return local_key
 			return name if name in pointer_map else None
 
+		# Record a read for the variable at this address.
 		def mark_read(addr: int) -> None:
-			# Record a read for the variable at this address.
 			block = self._mem.get_block(addr)
 			if block is None or block.var is None or block.var.is_pointer:
 				return
@@ -164,8 +169,8 @@ class FuncParser:
 				self._mem.read_memory(addr, root_func.name)
 				root_func.reads.add(name)
 
+		# Record a write for the variable at this address.
 		def mark_write(addr: int) -> None:
-			# Record a write for the variable at this address.
 			block = self._mem.get_block(addr)
 			if block is None or block.var is None or block.var.is_pointer:
 				return
@@ -174,8 +179,8 @@ class FuncParser:
 			root_func.writes.add(name)
 			written[name] = True
 
+		# Resolve variable name to address and mark read/write once.
 		def handle_access(name: str, nonconst_index: bool, read: bool, write: bool, read_before_write: bool = False) -> None:
-			# Resolve variable name to address and mark read/write once.
 			if not name:
 				return
 			base_addr = self._mem.get_address(name)
@@ -190,8 +195,8 @@ class FuncParser:
 			if write:
 				mark_write(addr)
 
+		# Try to extract a constant integer literal from a cursor.
 		def get_integer_literal(cursor) -> Optional[str]:
-			# Try to extract a constant integer literal from a cursor.
 			if cursor.kind == CursorKind.INTEGER_LITERAL:
 				tokens = [t.spelling for t in cursor.get_tokens()]
 				return tokens[0] if tokens else None
@@ -200,8 +205,8 @@ class FuncParser:
 				return tokens[0]
 			return None
 
+		# Resolve an access expression to a variable name and non-constant index flag.
 		def resolve_var_access(cursor) -> Tuple[Optional[str], bool]:
-			# Resolve an access expression to a variable name and non-constant index flag.
 			if cursor.kind in FuncParser.UNWRAP_KINDS:
 				child = next(cursor.get_children(), None)
 				return resolve_var_access(child) if child is not None else (None, False)
@@ -235,8 +240,8 @@ class FuncParser:
 				return f"{base_name}[{index_val}]", False
 			return None, False
 
+		# Resolve a pointer variable name from an expression.
 		def resolve_pointer_name(cursor) -> Optional[str]:
-			# Resolve a pointer variable name from an expression.
 			if cursor is None:
 				return None
 			if cursor.kind in FuncParser.UNWRAP_KINDS:
@@ -246,8 +251,8 @@ class FuncParser:
 				return cursor.spelling
 			return None
 
+		# Update pointer mapping and memory back-references.
 		def update_pointer_mapping(pointer_name: str, target_addr: Optional[int]) -> None:
-			# Update pointer mapping and memory back-references.
 			old_addr = pointer_map.get(pointer_name)
 			if old_addr is not None:
 				self._mem.remove_pointer_ref(old_addr, pointer_name)
@@ -255,8 +260,8 @@ class FuncParser:
 			if target_addr is not None:
 				self._mem.add_pointer_ref(target_addr, pointer_name)
 
+		# Detect the operator token for a given cursor.
 		def get_operator(cursor) -> str:
-			# Detect the operator token for a given cursor.
 			tokens = [t.spelling for t in cursor.get_tokens()]
 			for op in [
 				"+=", "-=", "*=", "/=", "%=", "<<=", ">>=", "&=", "|=", "^=",
@@ -266,8 +271,8 @@ class FuncParser:
 					return op
 			return ""
 
+		# Resolve a pointer initializer/assignment target to an address.
 		def resolve_pointer_target(expr) -> Optional[int]:
-			# Resolve a pointer initializer/assignment target to an address.
 			if expr is None:
 				return None
 			if expr.kind in FuncParser.UNWRAP_KINDS:
@@ -285,8 +290,8 @@ class FuncParser:
 				return pointer_map.get(ptr_key)
 			return None
 
+		# Handle lvalue writes, including compound assignments.
 		def handle_lvalue(cursor, is_compound: bool) -> None:
-			# Handle lvalue writes, including compound assignments.
 			if cursor.kind in FuncParser.UNWRAP_KINDS:
 				child = next(cursor.get_children(), None)
 				if child is not None:
@@ -314,9 +319,8 @@ class FuncParser:
 			else:
 				handle_access(name, nonconst, read=False, write=True)
 
+		# Walk expression nodes and apply read/write rules.
 		def handle_expr(cursor) -> None:
-			
-			# Walk expression nodes and apply read/write rules.
 			if cursor.kind == CursorKind.VAR_DECL:
 				# Track local pointer declarations and initializers.
 				var_name = cursor.spelling
@@ -335,8 +339,8 @@ class FuncParser:
 				return
 			
 			if cursor.kind == CursorKind.CALL_EXPR:
-				
 				# Mark global non-pointer arguments (any occurrence) as reads.
+				# Collect reads inside a call argument expression.
 				def collect_arg_reads(expr) -> None:
 					if expr is None:
 						return
@@ -457,8 +461,8 @@ class FuncParser:
 			for child in ordered_children(cursor):
 				handle_expr(child)
 
+		# Return children in source order by location.
 		def ordered_children(cursor):
-			# Return children in source order by location.
 			children = list(cursor.get_children())
 			def key(c):
 				loc = c.location
