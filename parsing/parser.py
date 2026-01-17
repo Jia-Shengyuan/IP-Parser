@@ -13,6 +13,7 @@ from clang.cindex import Index, CursorKind, TypeKind
 from models.variables import Variable, VARIABLE_DOMAIN, VARIABLE_KIND
 from models.functions import Function
 from models.structs import StructsManager
+from memory_managing.memory import MemoryManager
 
 class Parser:
     def __init__(self, project_path: str):
@@ -167,16 +168,24 @@ if __name__ == "__main__":
     # Simple test driver
     import sys
     if len(sys.argv) > 1:
+
         parser = Parser(sys.argv[1])
         parser.parse()
+        memMana = MemoryManager()
+        memMana.allocate_globals(parser.global_vars)
+
         print(f"Parsed {len(parser.global_vars)} global variables")
+
         for v in parser.global_vars:
-            print(f"  G: {v.name} ({v.raw_type}, {v.kind.value})")
+            print(f"  G: {v.name}: {v.raw_type}, addr={v.address}, size={parser.structs.get_size(v.raw_type)}")
         print(f"Parsed {len(parser.functions)} functions")
+
         for f in parser.functions:
             print(f"  F: {f.name} in {f.source_file}")
         print(f"Parsed {len(parser.structs._structs)} structs")
+
         for s in parser.structs._structs.values():
             print(f"  S: {s.name} (size={s.size})")
+
         print(f"  T: Integer (size={parser.structs.get_size('Integer')})")  # Example usage for pure typedef
         print(f"  T: Array5 (size={parser.structs.get_size('Array5')})")

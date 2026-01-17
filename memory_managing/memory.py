@@ -4,24 +4,16 @@ This module handles the allocation for abstract memory location.
 
 from dataclasses import dataclass, field
 from typing import List, Optional, Iterable, Tuple, Any, Dict
-
-
-@dataclass(frozen=True)
-class Address:
-	"""
-	Abstract address represented by (start, depth).
-	"""
-	start: int
-	depth: int
-
+from models import *
 
 @dataclass
 class MemoryBlock:
 	"""
 	Represents one abstract memory cell.
 	"""
-	addr: Address
-	parent: Address
+	addr: int
+	parent: int
+	ptr_value: Optional[int] = None  # If this block is a pointer, the address it points to
 	pointers: List[Any] = field(default_factory=list)  # Variables pointing to this block
 
 
@@ -33,15 +25,30 @@ class MemoryManager:
 	Each allocation returns one or more consecutive blocks.
 	"""
 
+	_instance: Optional["MemoryManager"] = None
+
+	def __new__(cls) -> "MemoryManager":
+		if cls._instance is None:
+			cls._instance = super().__new__(cls)
+			cls._instance._initialized = False
+		return cls._instance
+
 	def __init__(self) -> None:
+		if getattr(self, "_initialized", False):
+			return
+		self._initialized = True
 		self._next_addr: int = 1
-		self._blocks: List[List[MemoryBlock]] = [[]]  # index 0 unused
+		self._blocks: List[Optional[MemoryBlock]] = [None]  # index 0 unused
+
+	@classmethod
+	def instance(cls) -> "MemoryManager":
+		return cls()
 
 	def _ensure_capacity(self, max_addr: int) -> None:
 		while len(self._blocks) <= max_addr:
-			self._blocks.append([])
-
-	def _alloc_blocks(self, count: int, parent: Address, depth: int) -> List[Address]:
+			self._blocks.append(None)
+			
+	def _alloc_blocks(self, count: int, parent: int) -> List[int]:
 		if count <= 0:
 			raise ValueError("count must be positive")
 
@@ -51,86 +58,54 @@ class MemoryManager:
 
 		addrs = []
 		for addr in range(start_addr, end_addr + 1):
-			address = Address(start=addr, depth=depth)
-			self._blocks[addr].append(MemoryBlock(addr=address, parent=parent))
-			addrs.append(address)
+			self._blocks[addr] = MemoryBlock(addr=addr, parent=parent)
+			addrs.append(addr)
 
 		self._next_addr += count
 		return addrs
 
-	def allocate_scalar(self, var: Any, parent: Optional[Address] = None) -> Address:
+	def allocate_globals(self, variables: List[Variable]):
 		"""
-		Allocate one block for a basic type.
+		Allocate abstract memory for a list of global variables.
+		Each variable's `address` field is updated with the allocated address.
+		"""		
+		structs_manager = StructsManager.instance()
+		for var in variables:
+			addr = self._allocate(var.raw_type, parent=0, structs_manager=structs_manager)
+			var.address = addr
+
+	def _allocate(self, type_name: str, parent: int, structs_manager: StructsManager) -> int:
+		
 		"""
-		parent_addr = parent or Address(0, 0)
-		depth = parent_addr.depth + 1 if parent_addr.start != 0 else 0
-		addr = self._alloc_blocks(1, parent=parent_addr, depth=depth)[0]
-		return addr
-
-	def allocate_array(self, base_var: Any, length: int, parent: Optional[Address] = None) -> Tuple[Address, List[Address]]:
+		Allocate a variable by its type name, recursively allocating children.
+		Always allocates one block for the variable itself, then handles array/struct.
 		"""
-		Allocate blocks for an array of given length.
-		Returns (base_addr, element_addrs).
-		"""
-		parent_addr = parent or Address(0, 0)
-		base_depth = parent_addr.depth + 1 if parent_addr.start != 0 else 0
-		base_addr = self._alloc_blocks(1, parent=parent_addr, depth=base_depth)[0]
-		element_depth = base_depth + 1
-		element_addrs = self._alloc_blocks(length, parent=base_addr, depth=element_depth)
-		return base_addr, element_addrs
 
-	def allocate_struct(self, base_var: Any, members: List[Tuple[Any, int]], parent: Optional[Address] = None) -> Dict[Any, Address]:
-		"""
-		Allocate blocks for a struct.
-		Members: [(member_var, size_in_blocks), ...]
-		Returns a mapping {member_var: start_addr}.
-		"""
-		parent_addr = parent or Address(0, 0)
-		base_depth = parent_addr.depth + 1 if parent_addr.start != 0 else 0
-		base_addr = self._alloc_blocks(1, parent=parent_addr, depth=base_depth)[0]
-		member_depth = base_depth + 1
+		type_name = structs_manager.get_decoded_name(type_name)
 
-		member_start_map: Dict[Any, Address] = {}
-		for member_var, size in members:
-			if size <= 0:
-				raise ValueError("member size must be positive")
+		addr = self._next_addr
+		self._blocks.append(MemoryBlock(addr = addr, parent=parent))
+		self._next_addr += 1
 
-			member_addrs = self._alloc_blocks(size, parent=base_addr, depth=member_depth)
-			member_start_map[member_var] = member_addrs[0]
+		# case: basic type, including builtins and pointers -> finished
+		if structs_manager.is_basic_type(type_name):
+			return addr
 
-		return member_start_map
+		# case: array type
+		if structs_manager.is_array(type_name):
+			base_type, length = structs_manager.parse_array_type(type_name)
+			for _ in range(length):
+				self._allocate(base_type, parent=addr, structs_manager=structs_manager)
+			return addr
+		
+		# case: struct type
+		struct = structs_manager.get_struct(type_name)
+		if struct is None and not type_name.startswith("struct "):
+			struct = structs_manager.get_struct(f"struct {type_name}")
 
-	def add_pointer(self, addr: Address, var: Any) -> None:
-		"""
-		Register a pointer variable to an address.
-		"""
-		block = self.get_block(addr)
-		if not block:
-			raise KeyError(f"Address {addr} not allocated")
-		if var not in block.pointers:
-			block.pointers.append(var)
-
-	def remove_pointer(self, addr: Address, var: Any) -> None:
-		block = self.get_block(addr)
-		if not block:
-			return
-		if var in block.pointers:
-			block.pointers.remove(var)
-
-	def get_block(self, addr: Address) -> Optional[MemoryBlock]:
-		if addr.start <= 0 or addr.start >= len(self._blocks):
-			return None
-		for block in self._blocks[addr.start]:
-			if block.addr.depth == addr.depth:
-				return block
-		return None
-
-	def iter_blocks(self) -> Iterable[MemoryBlock]:
-		for bucket in self._blocks:
-			for block in bucket:
-				yield block
-
-	def reset(self) -> None:
-		self._next_addr = 1
-		self._blocks = [[]]
-
+		if struct is not None:
+			for member_type in struct.member_types:
+				self._allocate(member_type, parent=addr, structs_manager=structs_manager)
+			return addr
+		
+		raise TypeError(f"Unknown type for allocation: {type_name}")

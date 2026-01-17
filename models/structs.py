@@ -65,7 +65,7 @@ def _CalcTypeSize(curType: str):
         # memo: will there be types like int a[], instead of int a[NUMBER]?
         length = int(length_str) if length_str.isdigit() else 1
 
-        return _CalcTypeSize(base) * length
+        return 1 + _CalcTypeSize(base) * length
     
     if curType.startswith('(') and curType.endswith(')'):
         return _CalcTypeSize(curType[1:-1])
@@ -88,7 +88,7 @@ def _CalcTypeSize(curType: str):
     if struct is None:
         raise TypeError(f"Undefined type {_structs} found when calculating size.")
     
-    struct.size = 0
+    struct.size = 1
     for memberType in struct.member_types:
         struct.size += _CalcTypeSize(memberType)
 
@@ -142,7 +142,7 @@ class StructsManager:
                 underlying = getattr(node, "underlying_typedef_type", None)
                 underlying_name = getattr(underlying, "spelling", "") if underlying else ""
                 if typedef_name and underlying_name:
-                    self._typeDict[self._normalize_type_name(typedef_name)] = self._normalize_type_name(underlying_name)
+                    self._typeDict[_NormalizeTypeName(typedef_name)] = _NormalizeTypeName(underlying_name)
                 return None
 
         struct_node, name = self._resolve_struct_node_and_name(node)
@@ -153,6 +153,29 @@ class StructsManager:
 
     def get_struct(self, name: str) -> Struct | None:
         return _structs.get(name)
+    
+    def get_decoded_name(self, name: str) -> str:
+        name = _NormalizeTypeName(name)
+        if name in self._typeDict:
+            return self._typeDict[name]
+        return name
+    
+    def is_array(self, name: str) -> bool:
+        name = self.get_decoded_name(name)
+        return name.endswith("]") and "[" in name
+    
+    def is_struct(self, name: str) -> bool:
+        name = self.get_decoded_name(name)
+        return name in _structs
+    
+    def parse_array_type(self, type_name: str) -> tuple[str, int]:
+        name = self.get_decoded_name(type_name)
+        if not self.is_array(name):
+            raise TypeError(f"Type {type_name} is not an array type.")
+        base = name[: name.rfind("[")].strip()
+        length_str = name[name.rfind("[") + 1 : -1].strip()
+        length = int(length_str) if length_str.isdigit() else 1
+        return base, length
     
     def calculate_size(self):
         """
@@ -166,7 +189,12 @@ class StructsManager:
     
     def get_size(self, type_name: str) -> int:
         return _CalcTypeSize(type_name)
+    
+    def is_basic_type(self, type_name: str) -> bool:
+        t = _NormalizeTypeName(type_name)
+        return t in BUILTIN_TYPES or t.endswith("*")
 
+    # ai function
     def _extract_struct_name(self, node: Any) -> str:
         name = getattr(node, "spelling", "") or ""
         if name:
@@ -174,11 +202,12 @@ class StructsManager:
         type_obj = getattr(node, "type", None)
         type_name = getattr(type_obj, "spelling", "") if type_obj else ""
         if type_name:
-            t = self._normalize_type_name(type_name)
+            t =_NormalizeTypeName(type_name)
             return t if t.startswith("struct ") else f"struct {t}"
         node_id = getattr(node, "hash", None) or id(node)
         return f"__anon_struct_{node_id}"
 
+    # ai function
     def _resolve_struct_node_and_name(self, node: Any) -> tuple[Any, str]:
 
         is_typedef = (node.kind == CursorKind.TYPEDEF_DECL)
@@ -188,11 +217,12 @@ class StructsManager:
             struct_node = self._get_struct_decl_from_typedef(node) or node
             struct_name = self._extract_struct_name(struct_node)
             if typedef_name and not struct_name.startswith("__anon_struct_"):
-                self._typeDict[self._normalize_type_name(typedef_name)] = struct_name
+                self._typeDict[_NormalizeTypeName(typedef_name)] = struct_name
             return struct_node, struct_name
 
         return node, self._extract_struct_name(node)
 
+    # ai function
     def _get_struct_decl_from_typedef(self, node: Any) -> Optional[Any]:
         type_obj = getattr(node, "underlying_typedef_type", None)
         if not type_obj:
@@ -203,6 +233,7 @@ class StructsManager:
         except Exception:
             return None
 
+    # ai function
     def _extract_member_types_from_node(self, node: Any) -> List[str]:
 
         member_types: List[str] = []
@@ -218,8 +249,9 @@ class StructsManager:
 
         return member_types
 
+    # ai function
     def _resolve_alias(self, type_name: str) -> str:
-        t = self._normalize_type_name(type_name)
+        t = _NormalizeTypeName(type_name)
 
         # Preserve pointer suffixes
         pointer_suffix = ""
@@ -240,11 +272,11 @@ class StructsManager:
             t = self._typeDict[t]
 
         # If alias expands to something with array, keep it as is and append pointer suffix
-        t = self._normalize_type_name(t)
+        t = _NormalizeTypeName(t)
         if array_suffix:
             t = f"{t}{array_suffix}"
 
         return f"{t}{pointer_suffix}"
 
-    def _normalize_type_name(self, type_name: str) -> str:
-        return " ".join(type_name.strip().split())
+    # def _normalize_type_name(self, type_name: str) -> str:
+        # return " ".join(type_name.strip().split())

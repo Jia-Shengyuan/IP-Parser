@@ -26,3 +26,6 @@ typedef struct VEC_3X3X3 {
     struct Vector2 *y[3];
     Vector3 z[3];
 } Huge; // abstract size = 3*3 + 3 + 3*3 = 21
+
+Vector3 vec[2];
+Integer integer;
