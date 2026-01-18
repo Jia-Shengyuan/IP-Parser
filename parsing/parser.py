@@ -85,7 +85,7 @@ class Parser:
                 self._extract_global_variable(child)
             elif child.kind == CursorKind.FUNCTION_DECL:
                 self._extract_function(child)
-            elif child.kind == CursorKind.STRUCT_DECL or child.kind == CursorKind.TYPEDEF_DECL:
+            elif child.kind in (CursorKind.STRUCT_DECL, CursorKind.UNION_DECL, CursorKind.TYPEDEF_DECL):
                 self._extract_struct(child)
             elif child.kind == CursorKind.ENUM_DECL:
                 self._extract_enum(child)

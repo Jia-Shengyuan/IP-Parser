@@ -138,19 +138,23 @@ class StructsManager:
     def add_struct_from_node(self, node: Any) -> Optional[Struct]:
         """
         Add a struct directly from a libclang node.
-        The node can be a STRUCT_DECL cursor or a TYPEDEF_DECL cursor
-        like: typedef struct { ... } A;
+        The node can be a STRUCT_DECL/UNION_DECL cursor or a TYPEDEF_DECL cursor
+        like: typedef struct { ... } A; or typedef union { ... } A;
         """
         if node.kind == CursorKind.TYPEDEF_DECL:
             typedef_name = getattr(node, "spelling", "") or ""
             struct_node = self._get_struct_decl_from_typedef(node)
-            if not struct_node or struct_node.kind != CursorKind.STRUCT_DECL:
+            if not struct_node or struct_node.kind not in (CursorKind.STRUCT_DECL, CursorKind.UNION_DECL):
                 # Pure typedef (no struct definition here): only record alias.
                 underlying = getattr(node, "underlying_typedef_type", None)
                 underlying_name = getattr(underlying, "spelling", "") if underlying else ""
                 if typedef_name and underlying_name:
                     self._typeDict[_NormalizeTypeName(typedef_name)] = _NormalizeTypeName(underlying_name)
                 return None
+            struct_name = self._extract_struct_name(struct_node)
+            if typedef_name and not struct_name.startswith("__anon_struct_"):
+                self._typeDict[_NormalizeTypeName(typedef_name)] = struct_name
+            node = struct_node
 
         struct_node, name = self._resolve_struct_node_and_name(node)
         member_types = self._extract_member_types_from_node(struct_node)
@@ -236,13 +240,18 @@ class StructsManager:
     # ai function
     def _extract_struct_name(self, node: Any) -> str:
         name = getattr(node, "spelling", "") or ""
+        prefix = "struct"
+        if node is not None and getattr(node, "kind", None) == CursorKind.UNION_DECL:
+            prefix = "union"
         if name:
-            return f"struct {name}"
+            return f"{prefix} {name}"
         type_obj = getattr(node, "type", None)
         type_name = getattr(type_obj, "spelling", "") if type_obj else ""
         if type_name:
-            t =_NormalizeTypeName(type_name)
-            return t if t.startswith("struct ") else f"struct {t}"
+            t = _NormalizeTypeName(type_name)
+            if t.startswith("struct ") or t.startswith("union "):
+                return t
+            return f"{prefix} {t}"
         node_id = getattr(node, "hash", None) or id(node)
         return f"__anon_struct_{node_id}"
 
@@ -252,10 +261,10 @@ class StructsManager:
         is_typedef = (node.kind == CursorKind.TYPEDEF_DECL)
 
         if is_typedef:
-            typedef_name = getattr(node, "spelling", "") or ""
+            typedef_name = getattr(node, "spelling", "") or "" 
             struct_node = self._get_struct_decl_from_typedef(node) or node
             struct_name = self._extract_struct_name(struct_node)
-            if typedef_name and not struct_name.startswith("__anon_struct_"):
+            if typedef_name and not struct_name.startswith("__anon_struct_"): 
                 self._typeDict[_NormalizeTypeName(typedef_name)] = struct_name
             return struct_node, struct_name
 

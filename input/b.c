@@ -7,6 +7,12 @@ enum Color { RED, GREEN, BLUE };
 
 enum Color favorite_color = GREEN;
 
+union TestUnion {
+    int i;
+    float f;
+    enum Color c;
+} test_union;
+
 void traverse() {
     int i = 5; // non-constant during compile time
     int y = x[i]; // should be viewed as x[?]
@@ -24,6 +30,7 @@ volatile int _a, _b;
 
 void f1(int* ptr) {
     *ptr = 1;
+    test_union.i = 10;
 }
 
 void f2(int* ptr) {
