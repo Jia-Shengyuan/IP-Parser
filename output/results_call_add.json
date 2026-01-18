@@ -4,7 +4,12 @@
     "parameters": [],
     "state": [],
     "input": [],
-    "output": [],
+    "output": [
+      {
+        "name": "favorite_color",
+        "type": "enum Color"
+      }
+    ],
     "inout": [
       {
         "name": "x",

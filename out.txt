@@ -1,11 +1,12 @@
-Parsed 7 global variables
+Parsed 8 global variables
   G: x: int[10], addr=1, size=11
   G: y: int, addr=12, size=1
   G: p: int *, addr=13, size=1
   G: vec: Vector3[2], addr=14, size=9
   G: integer: Integer, addr=23, size=1
-  G: _a: int, addr=24, size=1
-  G: _b: int, addr=25, size=1
+  G: favorite_color: enum Color, addr=24, size=1
+  G: _a: volatile int, addr=25, size=1
+  G: _b: volatile int, addr=26, size=1
 Parsed 11 functions
   F: add in a.c
   F: sq in a.c
@@ -35,13 +36,13 @@ Memory Blocks:
      W: fun2
   M: Addr 4: x[2] (type int, parent=1, size=1)
      R: call_add, traverse
-     W: fun2
+     W: call_func_with_ptr, fun2, func_with_ptr
   M: Addr 5: x[3] (type int, parent=1, size=1)
-     R: call_add, call_func_with_ptr, traverse
-     W: call_func_with_ptr
-  M: Addr 6: x[4] (type int, parent=1, size=1)
      R: call_add, traverse
-     W: call_add, call_func_with_ptr, fun2, func_with_ptr
+     W: -
+  M: Addr 6: x[4] (type int, parent=1, size=1)
+     R: call_add, call_func_with_ptr, traverse
+     W: call_add, call_func_with_ptr, fun2
   M: Addr 7: x[5] (type int, parent=1, size=1)
      R: traverse
      W: -
@@ -61,8 +62,8 @@ Memory Blocks:
      R: -
      W: -
   M: Addr 13: p (type int *, parent=0, size=1)
-     R: call_add, call_func_with_ptr
-     W: call_add, call_func_with_ptr, fun2, func_with_ptr
+     R: call_add
+     W: call_add, fun2
   M: Addr 14: vec (type Vector3[2], parent=0, size=9)
      R: call_func_with_ptr, scaleX
      W: scaleX
@@ -93,9 +94,12 @@ Memory Blocks:
   M: Addr 23: integer (type Integer, parent=0, size=1)
      R: fun2, scaleX
      W: -
-  M: Addr 24: _a (type int, parent=0, size=1)
+  M: Addr 24: favorite_color (type enum Color, parent=0, size=1)
+     R: -
+     W: call_add
+  M: Addr 25: _a (type volatile int, parent=0, size=1)
      R: f2
      W: -
-  M: Addr 25: _b (type int, parent=0, size=1)
+  M: Addr 26: _b (type volatile int, parent=0, size=1)
      R: -
      W: f3

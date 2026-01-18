@@ -87,6 +87,8 @@ class Parser:
                 self._extract_function(child)
             elif child.kind == CursorKind.STRUCT_DECL or child.kind == CursorKind.TYPEDEF_DECL:
                 self._extract_struct(child)
+            elif child.kind == CursorKind.ENUM_DECL:
+                self._extract_enum(child)
 
     def _extract_struct(self, node):
         # Record struct definitions found in the project.
@@ -103,6 +105,17 @@ class Parser:
         self._seen_struct_nodes.add(key)
 
         self.structs.add_struct_from_node(node)
+
+    def _extract_enum(self, node):
+        # Record enum definitions found in the project.
+        location = node.location
+        if not location.file:
+            return
+        file_path = os.path.abspath(location.file.name)
+        if not file_path.startswith(self.project_path):
+            return
+
+        self.structs.add_enum_from_node(node)
 
     def _extract_global_variable(self, node):
         # Extract and register global variable declarations.

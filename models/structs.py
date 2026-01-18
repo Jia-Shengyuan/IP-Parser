@@ -41,7 +41,10 @@ def _NormalizeTypeName(type_name: str) -> str:
     Normalize type name by removing extra spaces.
     E.g., " unsigned   long  " -> "unsigned long"
     """
-    return ' '.join(type_name.strip().split())
+    t = ' '.join(type_name.strip().split())
+    qualifiers = {"const", "volatile", "extern", "mutable", "register", "static", "inline"}
+    parts = [p for p in t.split(" ") if p not in qualifiers]
+    return " ".join(parts)
 
 # here we guarantee that `curType` is a clean type name, which means no *, no [].
 # the basic level of structs are `struct StructName`.
@@ -160,6 +163,18 @@ class StructsManager:
         )
         _structs[name] = struct_def
         return struct_def
+
+    def add_enum_from_node(self, node: Any) -> None:
+        """
+        Treat enum type as builtin (size = 1).
+        """
+        name = getattr(node, "spelling", "") or ""
+        if not name:
+            return
+        # Register both "enum X" and "X" to be safe with clang spellings.
+        enum_name = f"enum {name}"
+        BUILTIN_TYPES.add(enum_name)
+        BUILTIN_TYPES.add(name)
 
     def get_struct(self, name: str) -> Struct | None:
         return _structs.get(name)
