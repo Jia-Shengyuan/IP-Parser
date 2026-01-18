@@ -46,10 +46,10 @@ void fun2() {
 
 void func_with_ptr(int* ptr, Vector3* arg) {
     *ptr += arg->y;
-    x[4] = 1;
+    x[2] = 1;
 }
 
 void call_func_with_ptr() {
     p = &x[3];
-    func_with_ptr(&x[3], &vec[1]);
+    func_with_ptr(&x[4], &vec[1]);
 }

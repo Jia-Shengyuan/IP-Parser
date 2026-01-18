@@ -357,6 +357,9 @@ class FuncParser:
 							if target_addr is not None:
 								mark_read(target_addr)
 						return
+					if expr.kind == CursorKind.UNARY_OPERATOR and get_operator(expr) == "&":
+						# Taking address should not count as a read.
+						return
 					name, _ = resolve_var_access(expr)
 					if name:
 						addr = self._mem.get_address(name)

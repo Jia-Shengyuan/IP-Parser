@@ -1,10 +1,12 @@
-Parsed 5 global variables
+Parsed 7 global variables
   G: x: int[10], addr=1, size=11
   G: y: int, addr=12, size=1
   G: p: int *, addr=13, size=1
   G: vec: Vector3[2], addr=14, size=9
   G: integer: Integer, addr=23, size=1
-Parsed 8 functions
+  G: _a: int, addr=24, size=1
+  G: _b: int, addr=25, size=1
+Parsed 11 functions
   F: add in a.c
   F: sq in a.c
   F: scaleX in a.c
@@ -13,6 +15,9 @@ Parsed 8 functions
   F: call_func_with_ptr in a.c
   F: traverse in b.c
   F: call_add in b.c
+  F: f1 in b.c
+  F: f2 in b.c
+  F: f3 in b.c
 Parsed 3 structs
   S: struct Vector2 (size=3)
   S: struct Vector3 (size=4)
@@ -29,10 +34,10 @@ Memory Blocks:
      R: traverse
      W: fun2
   M: Addr 4: x[2] (type int, parent=1, size=1)
-     R: traverse
+     R: call_add, traverse
      W: fun2
   M: Addr 5: x[3] (type int, parent=1, size=1)
-     R: call_func_with_ptr, traverse
+     R: call_add, call_func_with_ptr, traverse
      W: call_func_with_ptr
   M: Addr 6: x[4] (type int, parent=1, size=1)
      R: call_add, traverse
@@ -77,14 +82,20 @@ Memory Blocks:
      R: call_func_with_ptr
      W: -
   M: Addr 20: vec[1].x (type int, parent=19, size=1)
-     R: call_func_with_ptr
+     R: -
      W: -
   M: Addr 21: vec[1].y (type int, parent=19, size=1)
      R: call_func_with_ptr
      W: -
   M: Addr 22: vec[1].z (type int, parent=19, size=1)
-     R: call_func_with_ptr
+     R: -
      W: -
   M: Addr 23: integer (type Integer, parent=0, size=1)
      R: fun2, scaleX
      W: -
+  M: Addr 24: _a (type int, parent=0, size=1)
+     R: f2
+     W: -
+  M: Addr 25: _b (type int, parent=0, size=1)
+     R: -
+     W: f3

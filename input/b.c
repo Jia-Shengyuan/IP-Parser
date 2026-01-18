@@ -14,3 +14,20 @@ void call_add() {
     *p += 1;
     // *p = (*p) + 1;
 }
+
+int _a, _b;
+
+void f1(int* ptr) {
+    *ptr = 1;
+}
+
+void f2(int* ptr) {
+    f1(_a);
+    *ptr = 2;
+}
+
+void f3() {
+    // int *ptr = &_b;
+    // f1(ptr);
+    f1(&_b);
+}
