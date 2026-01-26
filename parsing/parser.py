@@ -15,6 +15,7 @@ from models.functions import Function
 from models.structs import StructsManager
 from memory_managing.memory import MemoryManager
 from parsing.func_parser import FuncParser
+from utils.callgraph import reverse_topo_from_project
 
 class Parser:
 
@@ -31,7 +32,7 @@ class Parser:
         self._function_nodes = []  # List of (Cursor, Function)
         self._global_pointer_inits: Dict[str, Any] = {}  # pointer var name -> init cursor
 
-    def parse(self):
+    def parse(self, entry_function: str | None = None):
         """
         Parse all source files in the project_path.
         """
@@ -53,11 +54,28 @@ class Parser:
         memMana = MemoryManager.instance()
         memMana.allocate_globals(self.global_vars)
 
-        func_parser = FuncParser.instance()
-        func_parser.initialize(self.global_vars, self._global_pointer_inits, self._function_nodes)
+        param_vars: List[Variable] = []
+        for func in self.functions:
+            if func.vars_dict:
+                for var in func.vars_dict.values():
+                    if var.domain == VARIABLE_DOMAIN.PARAM:
+                        param_vars.append(var)
 
-        for func_node, func in self._function_nodes:
-            func_parser.parse_function(func_node, func)
+        param_pointer_defaults = memMana.allocate_params(param_vars)
+
+        func_parser = FuncParser.instance()
+        func_parser.initialize(self.global_vars, self._global_pointer_inits, self._function_nodes, param_pointer_defaults)
+
+        if entry_function:
+            order = reverse_topo_from_project(self.project_path, entry_function)
+            func_map = {func.name: (node, func) for node, func in self._function_nodes}
+            for func_name in order:
+                if func_name in func_map:
+                    func_node, func = func_map[func_name]
+                    func_parser.parse_function(func_node, func)
+        else:
+            for func_node, func in self._function_nodes:
+                func_parser.parse_function(func_node, func)
 
         func_parser.finalize()
 
@@ -206,16 +224,39 @@ class Parser:
 
         # Only parsing basic info for now as requested
         params = []
+        func_vars_dict: Dict[str, Variable] = {}
         for child in node.get_children():
             if child.kind == CursorKind.PARM_DECL:
                 param_name = child.spelling
                 if param_name:
                     params.append(param_name)
+                    param_type = child.type
+                    raw_type = param_type.spelling
+                    canonical_type = param_type.get_canonical()
+                    if canonical_type.kind == TypeKind.POINTER:
+                        kind = VARIABLE_KIND.POINTER
+                    elif canonical_type.kind == TypeKind.RECORD:
+                        kind = VARIABLE_KIND.RECORD
+                    elif canonical_type.kind in [TypeKind.CONSTANTARRAY, TypeKind.INCOMPLETEARRAY, TypeKind.VARIABLEARRAY, TypeKind.DEPENDENTSIZEDARRAY]:
+                        kind = VARIABLE_KIND.ARRAY
+                    else:
+                        kind = VARIABLE_KIND.BUILTIN
+                    is_pointer = (canonical_type.kind == TypeKind.POINTER)
+                    prefixed_name = f"<{name}>{param_name}"
+                    func_vars_dict[prefixed_name] = Variable(
+                        name=prefixed_name,
+                        raw_type=raw_type,
+                        kind=kind,
+                        domain=VARIABLE_DOMAIN.PARAM,
+                        is_pointer=is_pointer,
+                        points_to={}
+                    )
 
         func = Function(
             name=name,
             source_file=source_file,
-            params=params
+            params=params,
+            vars_dict=func_vars_dict
         )
         self.functions.append(func)
         self._function_nodes.append((node, func))

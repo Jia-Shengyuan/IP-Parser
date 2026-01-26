@@ -117,3 +117,45 @@ Memory Blocks:
   M: Addr 30: _b (type volatile int, parent=0, size=1)
      R: -
      W: f3
+  M: Addr 31: <add>a (type int, parent=0, size=1)
+     R: -
+     W: -
+  M: Addr 32: <add>b (type int, parent=0, size=1)
+     R: -
+     W: -
+  M: Addr 33: <sq>v (type double, parent=0, size=1)
+     R: -
+     W: -
+  M: Addr 34: <func_with_ptr>ptr (type int *, parent=0, size=1)
+     R: call_func_with_ptr
+     W: call_func_with_ptr
+  M: Addr 35: <func_with_ptr>ptr__pointee (type int, parent=0, size=1)
+     R: func_with_ptr
+     W: func_with_ptr
+  M: Addr 36: <func_with_ptr>arg (type Vector3 *, parent=0, size=1)
+     R: -
+     W: -
+  M: Addr 37: <func_with_ptr>arg__pointee (type struct Vector3, parent=0, size=4)
+     R: func_with_ptr
+     W: -
+  M: Addr 38: <func_with_ptr>arg__pointee.x (type int, parent=37, size=1)
+     R: -
+     W: -
+  M: Addr 39: <func_with_ptr>arg__pointee.y (type int, parent=37, size=1)
+     R: func_with_ptr
+     W: -
+  M: Addr 40: <func_with_ptr>arg__pointee.z (type int, parent=37, size=1)
+     R: -
+     W: -
+  M: Addr 41: <f1>ptr (type int *, parent=0, size=1)
+     R: -
+     W: f3
+  M: Addr 42: <f1>ptr__pointee (type int, parent=0, size=1)
+     R: -
+     W: f1
+  M: Addr 43: <f2>ptr (type int *, parent=0, size=1)
+     R: -
+     W: -
+  M: Addr 44: <f2>ptr__pointee (type int, parent=0, size=1)
+     R: -
+     W: f2

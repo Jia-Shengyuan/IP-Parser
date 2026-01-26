@@ -1,0 +1,29 @@
+{
+  "function_name": "AccSinTrackCalculate",
+  "interface_semantics": {
+    "parameters": [
+      {
+        "name": "DBL_PI",
+        "type": "const float64"
+      }
+    ],
+    "state": [],
+    "input": [
+      {
+        "name": "dtv",
+        "type": "float64"
+      },
+      {
+        "name": "dtTr",
+        "type": "float64"
+      }
+    ],
+    "output": [],
+    "inout": [
+      {
+        "name": "past",
+        "type": "SMnvrData *"
+      }
+    ]
+  }
+}

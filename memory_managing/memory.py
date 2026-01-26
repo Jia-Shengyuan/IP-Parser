@@ -41,6 +41,7 @@ class MemoryManager:
 		self._next_addr: int = 1
 		self._blocks: List[Optional[MemoryBlock]] = [None]  # index 0 unused
 		self._map: Dict[str, int] = dict()  # var_name -> address
+		self._dirty_ptr_blocks: Set[int] = set()
 
 	@classmethod
 	def instance(cls) -> "MemoryManager":
@@ -74,16 +75,32 @@ class MemoryManager:
 		if block is None:
 			return
 		block.pointers.add(pointer_name)
+		self._dirty_ptr_blocks.add(target_addr)
+
+	def _iter_pointer_refs(self, addr: int) -> Set[str]:
+		refs: Set[str] = set()
+		current = addr
+		while current and current < len(self._blocks):
+			block = self._blocks[current]
+			if block is None:
+				break
+			refs.update(block.pointers)
+			current = block.parent
+		return refs
 
 	def remove_pointer_ref(self, target_addr: int, pointer_name: str) -> None:
 		block = self.get_block(target_addr)
 		if block is None:
 			return
 		block.pointers.discard(pointer_name)
+		self._dirty_ptr_blocks.add(target_addr)
 
 	def clear_pointer_refs(self) -> None:
-		for block in self.iter_blocks():
-			block.pointers.clear()
+		for addr in self._dirty_ptr_blocks:
+			block = self.get_block(addr)
+			if block is not None:
+				block.pointers.clear()
+		self._dirty_ptr_blocks.clear()
 
 	# what: should be called when a function reads a variable in the abstract memory
 	def read_memory(self, addr: int, func: str):
@@ -94,7 +111,7 @@ class MemoryManager:
 			return  # already overwritten, no need to mark read
 		
 		# read to a memory is viewed as reading all the pointers pointing towards it
-		for pointer in block.pointers:
+		for pointer in self._iter_pointer_refs(addr):
 			pointer_addr = self.get_address(pointer)
 			if pointer_addr is not None:
 				self._mark_read(pointer_addr, func)
@@ -108,7 +125,7 @@ class MemoryManager:
 
 		block = self._blocks[addr]
 
-		for pointer in block.pointers:
+		for pointer in self._iter_pointer_refs(addr):
 			pointer_addr = self.get_address(pointer)
 			if pointer_addr is not None:
 				self._mark_write(pointer_addr, func)
@@ -149,6 +166,28 @@ class MemoryManager:
 			addr = self._allocate(var.name, var.raw_type, parent=0, structs_manager=structs_manager, variable=var)
 			var.address = addr
 			# self._blocks[addr].var = var  # Update with the original variable info
+
+	def allocate_params(self, variables: List[Variable]) -> Dict[str, int]:
+		"""
+		Allocate abstract memory for a list of parameter variables.
+		Returns a mapping of pointer param name -> dummy pointee address.
+		"""
+		structs_manager = StructsManager.instance()
+		pointer_defaults: Dict[str, int] = {}
+		for var in variables:
+			addr = self._allocate(var.name, var.raw_type, parent=0, structs_manager=structs_manager, variable=var)
+			var.address = addr
+			if var.is_pointer:
+				base_type = structs_manager.get_decoded_name(var.raw_type).rstrip()
+				if base_type.endswith("*"):
+					base_type = base_type[:-1].strip()
+				if not base_type:
+					base_type = "void"
+				dummy_name = f"{var.name}__pointee"
+				dummy_addr = self._allocate(dummy_name, base_type, parent=0, structs_manager=structs_manager)
+				pointer_defaults[var.name] = dummy_addr
+				self.add_pointer_ref(dummy_addr, var.name)
+		return pointer_defaults
 
 	def _allocate(self, var_name: str, type_name: str, parent: int, structs_manager: StructsManager, variable: Variable | None = None) -> int:
 		

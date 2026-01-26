@@ -4,7 +4,7 @@ from typing import List, Dict, Set
 class Function:
 
     def __init__(self, name: str, source_file: str, params: List[str] = [], vars_dict: Dict[str, Variable] = dict(),
-                 reads: Set[str] = set(), writes: Set[str] = set(), calls: Set[str] = set()):
+                 reads: Set[str] = set(), writes: Set[str] = set(), calls: Set[str] = set(), non_state: Set[str] = set()):
         
         self.name = name
         self.source_file = source_file
@@ -13,5 +13,6 @@ class Function:
         self.reads = reads
         self.writes = writes
         self.calls = calls
+        self.non_state = non_state
 
     

@@ -8,7 +8,12 @@ from models.summarize import FunctionSummarize, BriefVariable
 
 
 def _to_brief(var) -> BriefVariable:
-	return BriefVariable(name=var.name, type=var.raw_type)
+	name = var.name
+	if name.endswith("__pointee"):
+		return None
+	if name.startswith("<") and ">" in name:
+		name = name.split(">", 1)[1]
+	return BriefVariable(name=name, type=var.raw_type)
 
 
 def _summarize_function(parser: Parser, target_name: str) -> FunctionSummarize:
@@ -33,23 +38,31 @@ def _summarize_function(parser: Parser, target_name: str) -> FunctionSummarize:
 
 		r_target = target_name in var.read
 		w_target = target_name in var.write
-		r_any = len(var.read) > 0
-		w_any = len(var.write) > 0
 
 		# Only include variables that the target function reads or writes.
 		if not (r_target or w_target):
 			continue
 
-		if r_any and not w_any:
-			summary.interface_semantics.parameters.append(_to_brief(var))
-		elif r_target and w_target and var.read.issubset({target_name}) and var.write.issubset({target_name}):
-			summary.interface_semantics.state.append(_to_brief(var))
+		if r_target and not w_target and var.domain == var.domain.GLOBAL:
+			brief = _to_brief(var)
+			if brief:
+				summary.interface_semantics.parameters.append(brief)
+		elif r_target and w_target and var.read.issubset({target_name}) and var.write.issubset({target_name}) and var.name not in target_func.non_state:
+			brief = _to_brief(var)
+			if brief:
+				summary.interface_semantics.state.append(brief)
 		elif r_target and not w_target:
-			summary.interface_semantics.input.append(_to_brief(var))
+			brief = _to_brief(var)
+			if brief:
+				summary.interface_semantics.input.append(brief)
 		elif w_target and not r_target:
-			summary.interface_semantics.output.append(_to_brief(var))
+			brief = _to_brief(var)
+			if brief:
+				summary.interface_semantics.output.append(brief)
 		else:
-			summary.interface_semantics.inout.append(_to_brief(var))
+			brief = _to_brief(var)
+			if brief:
+				summary.interface_semantics.inout.append(brief)
 
 	return summary
 
@@ -78,7 +91,7 @@ if __name__ == "__main__":
 	project_path = sys.argv[2] if len(sys.argv) > 2 else "input"
 
 	parser = Parser(project_path)
-	parser.parse()
+	parser.parse(entry_function=function_name)
 
 	summary = _summarize_function(parser, function_name)
 	output_dir = "output"

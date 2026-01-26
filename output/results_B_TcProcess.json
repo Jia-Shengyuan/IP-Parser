@@ -1,0 +1,10 @@
+{
+  "function_name": "B_TcProcess",
+  "interface_semantics": {
+    "parameters": [],
+    "state": [],
+    "input": [],
+    "output": [],
+    "inout": []
+  }
+}

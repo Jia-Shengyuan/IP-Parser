@@ -43,14 +43,18 @@ class FuncParser:
 	def instance(cls) -> "FuncParser":
 		return cls._instance if cls._instance is not None else cls()
 
-	# Initialize pointer map for global pointers and apply global initializers.
-	def initialize(self, global_vars: list[Variable], global_pointer_inits: Dict[str, Any], function_nodes: list[tuple[Any, Function]]) -> None:
+	# Initialize pointer map for global/param pointers and apply global initializers.
+	def initialize(self, global_vars: list[Variable], global_pointer_inits: Dict[str, Any], function_nodes: list[tuple[Any, Function]], param_pointer_defaults: Dict[str, int]) -> None:
 		self._pointer_map = {}
 		self._global_pointer_inits = global_pointer_inits
 		self._functions = {func.name: (node, func) for node, func in function_nodes}
 		for var in global_vars:
 			if var.is_pointer:
 				self._pointer_map[var.name] = None
+
+		for param_name, addr in param_pointer_defaults.items():
+			self._pointer_map[param_name] = addr
+			self._mem.add_pointer_ref(addr, param_name)
 
 		for pointer_name, init_cursor in self._global_pointer_inits.items():
 			target_addr = self._resolve_pointer_target_expr(init_cursor)
@@ -125,6 +129,10 @@ class FuncParser:
 	# Parse a function node in sequential order and update Variable read/write sets.
 	def parse_function(self, node, func: Function) -> None:
 		self._mem.clear_pointer_refs()
+		# Restore parameter pointer default references.
+		for pointer_name, addr in self._pointer_map.items():
+			if addr is not None and pointer_name.startswith("<"):
+				self._mem.add_pointer_ref(addr, pointer_name)
 		for pointer_name, init_cursor in self._global_pointer_inits.items():
 			target_addr = self._resolve_pointer_target_expr(init_cursor)
 			if target_addr is not None:
@@ -184,6 +192,9 @@ class FuncParser:
 			if not name:
 				return
 			base_addr = self._mem.get_address(name)
+			if base_addr is None:
+				prefixed = f"{func_prefix}{name}"
+				base_addr = self._mem.get_address(prefixed)
 			if base_addr is None:
 				return
 
@@ -385,27 +396,78 @@ class FuncParser:
 					callee_node, callee_func = self._functions[callee_name]
 					param_names = callee_func.params or []
 					arg_nodes = list(cursor.get_arguments())
-					updated_keys: Dict[str, Optional[int]] = {}
 
+					# Build param info for pointer params (map to actual target address).
+					param_targets: Dict[str, Optional[int]] = {}
+					param_arg_names: Dict[str, Optional[str]] = {}
 					for i, param_name in enumerate(param_names):
 						if i >= len(arg_nodes):
 							break
-						target_addr = resolve_pointer_target(arg_nodes[i])
 						param_key = f"<{callee_func.name}>{param_name}"
-						updated_keys[param_key] = pointer_map.get(param_key)
-						update_pointer_mapping(param_key, target_addr)
+						param_var = callee_func.vars_dict.get(param_key) if callee_func.vars_dict else None
+						if param_var is not None and param_var.is_pointer:
+							param_targets[param_name] = resolve_pointer_target(arg_nodes[i])
+							arg_name, _ = resolve_var_access(arg_nodes[i])
+							param_arg_names[param_name] = arg_name
+							if arg_name:
+								root_func.non_state.add(arg_name)
+								root_func.non_state.add(f"<{root_func.name}>{arg_name}")
 
-					self._parse_function_with_context(
-						callee_node,
-						callee_func,
-						root_func,
-						pointer_map,
-						written,
-						call_stack
-					)
+					# Merge cached callee results into root_func.
+					def merge_global_read(var_name: str) -> None:
+						addr = self._mem.get_address(var_name)
+						if addr is None:
+							return
+						root_func.non_state.add(var_name)
+						mark_read(addr)
 
-					for key, old_addr in updated_keys.items():
-						update_pointer_mapping(key, old_addr)
+					def merge_global_write(var_name: str) -> None:
+						addr = self._mem.get_address(var_name)
+						if addr is None:
+							return
+						root_func.non_state.add(var_name)
+						mark_write(addr)
+
+					def mark_non_state_by_addr(addr: int) -> None:
+						block = self._mem.get_block(addr)
+						if block is None or block.var is None:
+							return
+						root_func.non_state.add(block.var.name)
+
+					prefix = f"<{callee_func.name}>"
+					for var_name in list(callee_func.reads):
+						if var_name.startswith(prefix):
+							# Handle pointer-param dummy reads only.
+							if var_name.endswith("__pointee"):
+								param_name = var_name[len(prefix):].removesuffix("__pointee")
+								target_addr = param_targets.get(param_name)
+								if target_addr is not None:
+									mark_non_state_by_addr(target_addr)
+									arg_name = param_arg_names.get(param_name)
+									if arg_name:
+										root_func.non_state.add(arg_name)
+										root_func.non_state.add(f"<{root_func.name}>{arg_name}")
+									mark_read(target_addr)
+							# Non-pointer params are counted via argument evaluation, skip here.
+							continue
+						merge_global_read(var_name)
+
+					for var_name in list(callee_func.writes):
+						if var_name.startswith(prefix):
+							if var_name.endswith("__pointee"):
+								param_name = var_name[len(prefix):].removesuffix("__pointee")
+								target_addr = param_targets.get(param_name)
+								if target_addr is not None:
+									mark_non_state_by_addr(target_addr)
+									arg_name = param_arg_names.get(param_name)
+									if arg_name:
+										root_func.non_state.add(arg_name)
+										root_func.non_state.add(f"<{root_func.name}>{arg_name}")
+									mark_write(target_addr)
+							continue
+							# Writes to by-value params do not affect caller.
+							continue
+						merge_global_write(var_name)
 
 				return
 			
