@@ -187,6 +187,25 @@ class FuncParser:
 			root_func.writes.add(name)
 			written[name] = True
 
+		def get_addr_for_name(name: str) -> Optional[int]:
+			addr = self._mem.get_address(name)
+			if addr is None:
+				prefixed = f"{func_prefix}{name}"
+				addr = self._mem.get_address(prefixed)
+			return addr
+
+		def add_non_state_name(var_name: Optional[str]) -> None:
+			if not var_name:
+				return
+			root_func.non_state.add(var_name)
+			clean_name = var_name
+			if clean_name.startswith("<") and ">" in clean_name:
+				clean_name = clean_name.split(">", 1)[1]
+			base = clean_name.split(".", 1)[0].split("[", 1)[0]
+			if base:
+				root_func.non_state.add(base)
+				root_func.non_state.add(f"<{root_func.name}>{base}")
+
 		# Resolve variable name to address and mark read/write once.
 		def handle_access(name: str, nonconst_index: bool, read: bool, write: bool, read_before_write: bool = False) -> None:
 			if not name:
@@ -218,7 +237,16 @@ class FuncParser:
 
 		# Resolve an access expression to a variable name and non-constant index flag.
 		def resolve_var_access(cursor) -> Tuple[Optional[str], bool]:
+			if cursor.kind == CursorKind.CSTYLE_CAST_EXPR:
+				for child in cursor.get_children():
+					name, nonconst = resolve_var_access(child)
+					if name:
+						return name, nonconst
+				return None, False
 			if cursor.kind in FuncParser.UNWRAP_KINDS:
+				child = next(cursor.get_children(), None)
+				return resolve_var_access(child) if child is not None else (None, False)
+			if cursor.kind == CursorKind.UNARY_OPERATOR and get_operator(cursor) == "&":
 				child = next(cursor.get_children(), None)
 				return resolve_var_access(child) if child is not None else (None, False)
 			if cursor.kind == CursorKind.DECL_REF_EXPR:
@@ -245,6 +273,14 @@ class FuncParser:
 				base_name, _ = resolve_var_access(children[0])
 				if not base_name:
 					return None, False
+				ptr_key = resolve_pointer_key(base_name)
+				if ptr_key:
+					target_addr = pointer_map.get(ptr_key)
+					if target_addr is not None:
+						block = self._mem.get_block(target_addr)
+						if block is not None and block.var is not None:
+							# Pointer used as array: treat as access to pointee memory.
+							return block.var.name, True
 				index_val = get_integer_literal(children[1])
 				if index_val is None:
 					return base_name, True
@@ -255,7 +291,16 @@ class FuncParser:
 		def resolve_pointer_name(cursor) -> Optional[str]:
 			if cursor is None:
 				return None
+			if cursor.kind == CursorKind.CSTYLE_CAST_EXPR:
+				for child in cursor.get_children():
+					name = resolve_pointer_name(child)
+					if name:
+						return name
+				return None
 			if cursor.kind in FuncParser.UNWRAP_KINDS:
+				child = next(cursor.get_children(), None)
+				return resolve_pointer_name(child)
+			if cursor.kind == CursorKind.UNARY_OPERATOR and get_operator(cursor) in ("*", "&"):
 				child = next(cursor.get_children(), None)
 				return resolve_pointer_name(child)
 			if cursor.kind == CursorKind.DECL_REF_EXPR:
@@ -294,7 +339,7 @@ class FuncParser:
 				if child is None:
 					return None
 				name, _ = resolve_var_access(child)
-				return self._mem.get_address(name) if name else None
+				return get_addr_for_name(name) if name else None
 			ptr_name = resolve_pointer_name(expr)
 			ptr_key = resolve_pointer_key(ptr_name)
 			if ptr_key is not None:
@@ -308,6 +353,11 @@ class FuncParser:
 				if child is not None:
 					handle_lvalue(child, is_compound)
 				return
+			if cursor.kind == CursorKind.ARRAY_SUBSCRIPT_EXPR:
+				children = list(cursor.get_children())
+				if len(children) >= 2:
+					# Index expression should be treated as read.
+					handle_expr(children[1])
 			if cursor.kind == CursorKind.UNARY_OPERATOR and get_operator(cursor) == "*":
 				child = next(cursor.get_children(), None)
 				ptr_name = resolve_pointer_name(child)
@@ -355,6 +405,10 @@ class FuncParser:
 				def collect_arg_reads(expr) -> None:
 					if expr is None:
 						return
+					if expr.kind == CursorKind.CSTYLE_CAST_EXPR:
+						for child in expr.get_children():
+							collect_arg_reads(child)
+						return
 					if expr.kind in FuncParser.UNWRAP_KINDS:
 						child = next(expr.get_children(), None)
 						collect_arg_reads(child)
@@ -369,18 +423,28 @@ class FuncParser:
 								mark_read(target_addr)
 						return
 					if expr.kind == CursorKind.UNARY_OPERATOR and get_operator(expr) == "&":
-						# Taking address should not count as a read.
+						# Taking address should not count as a read, but index expressions are reads.
+						child = next(expr.get_children(), None)
+						if child is not None and child.kind == CursorKind.ARRAY_SUBSCRIPT_EXPR:
+							children = list(child.get_children())
+							if len(children) >= 2:
+								collect_arg_reads(children[1])
 						return
 					name, _ = resolve_var_access(expr)
 					if name:
-						addr = self._mem.get_address(name)
+						addr = get_addr_for_name(name)
 						if addr is not None:
 							block = self._mem.get_block(addr)
 							if block is not None and block.var is not None and not block.var.is_pointer:
 								mark_read(addr)
-							# Avoid double-counting base identifiers in subscript/member expressions.
-							if expr.kind in (CursorKind.ARRAY_SUBSCRIPT_EXPR, CursorKind.MEMBER_REF_EXPR):
-								return
+						# Avoid double-counting base identifiers in member expressions.
+						if expr.kind == CursorKind.MEMBER_REF_EXPR:
+							return
+						if expr.kind == CursorKind.ARRAY_SUBSCRIPT_EXPR:
+							children = list(expr.get_children())
+							if len(children) >= 2:
+								collect_arg_reads(children[1])
+							return
 					for child in ordered_children(expr):
 						collect_arg_reads(child)
 
@@ -410,29 +474,28 @@ class FuncParser:
 							arg_name, _ = resolve_var_access(arg_nodes[i])
 							param_arg_names[param_name] = arg_name
 							if arg_name:
-								root_func.non_state.add(arg_name)
-								root_func.non_state.add(f"<{root_func.name}>{arg_name}")
+								add_non_state_name(arg_name)
 
 					# Merge cached callee results into root_func.
 					def merge_global_read(var_name: str) -> None:
 						addr = self._mem.get_address(var_name)
 						if addr is None:
 							return
-						root_func.non_state.add(var_name)
+						add_non_state_name(var_name)
 						mark_read(addr)
 
 					def merge_global_write(var_name: str) -> None:
 						addr = self._mem.get_address(var_name)
 						if addr is None:
 							return
-						root_func.non_state.add(var_name)
+						add_non_state_name(var_name)
 						mark_write(addr)
 
 					def mark_non_state_by_addr(addr: int) -> None:
 						block = self._mem.get_block(addr)
 						if block is None or block.var is None:
 							return
-						root_func.non_state.add(block.var.name)
+						add_non_state_name(block.var.name)
 
 					prefix = f"<{callee_func.name}>"
 					for var_name in list(callee_func.reads):
@@ -445,8 +508,7 @@ class FuncParser:
 									mark_non_state_by_addr(target_addr)
 									arg_name = param_arg_names.get(param_name)
 									if arg_name:
-										root_func.non_state.add(arg_name)
-										root_func.non_state.add(f"<{root_func.name}>{arg_name}")
+										add_non_state_name(arg_name)
 									mark_read(target_addr)
 							# Non-pointer params are counted via argument evaluation, skip here.
 							continue
@@ -461,8 +523,7 @@ class FuncParser:
 									mark_non_state_by_addr(target_addr)
 									arg_name = param_arg_names.get(param_name)
 									if arg_name:
-										root_func.non_state.add(arg_name)
-										root_func.non_state.add(f"<{root_func.name}>{arg_name}")
+										add_non_state_name(arg_name)
 									mark_write(target_addr)
 							continue
 							# Writes to by-value params do not affect caller.
@@ -475,6 +536,10 @@ class FuncParser:
 				name, nonconst = resolve_var_access(cursor)
 				if name is not None:
 					handle_access(name, nonconst, read=True, write=False)
+				if cursor.kind == CursorKind.ARRAY_SUBSCRIPT_EXPR:
+					children = list(cursor.get_children())
+					if len(children) >= 2:
+						handle_expr(children[1])
 				return
 
 			if cursor.kind == CursorKind.UNARY_OPERATOR:
@@ -491,6 +556,10 @@ class FuncParser:
 							mark_read(target_addr)
 					return
 				if op == "&":
+					if child.kind == CursorKind.ARRAY_SUBSCRIPT_EXPR:
+						children = list(child.get_children())
+						if len(children) >= 2:
+							handle_expr(children[1])
 					return
 				if op in ("++", "--"):
 					handle_lvalue(child, is_compound=True)

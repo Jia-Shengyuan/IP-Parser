@@ -1,0 +1,40 @@
+{
+  "function_name": "AttitudeSelectXY",
+  "interface_semantics": {
+    "parameters": [
+      {
+        "name": "mStsSelectData",
+        "type": "SStsData"
+      },
+      {
+        "name": "mStsGyroData",
+        "type": "SStsData"
+      },
+      {
+        "name": "mGyro",
+        "type": "SGyro"
+      },
+      {
+        "name": "mDss",
+        "type": "SDss"
+      },
+      {
+        "name": "mAttManeuver",
+        "type": "SAttManeuver"
+      },
+      {
+        "name": "mModeManage",
+        "type": "SModeManage"
+      }
+    ],
+    "state": [],
+    "input": [],
+    "output": [],
+    "inout": [
+      {
+        "name": "mAttitude",
+        "type": "SAttitude"
+      }
+    ]
+  }
+}

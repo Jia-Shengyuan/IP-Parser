@@ -1,0 +1,24 @@
+{
+  "function_name": "VectA2B",
+  "interface_semantics": {
+    "parameters": [],
+    "state": [],
+    "input": [
+      {
+        "name": "ptrA",
+        "type": "const float64 *"
+      },
+      {
+        "name": "num",
+        "type": "siint32"
+      }
+    ],
+    "output": [
+      {
+        "name": "ptrB",
+        "type": "float64 *"
+      }
+    ],
+    "inout": []
+  }
+}

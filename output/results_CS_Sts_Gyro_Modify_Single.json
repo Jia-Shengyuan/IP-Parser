@@ -1,0 +1,32 @@
+{
+  "function_name": "CS_Sts_Gyro_Modify_Single",
+  "interface_semantics": {
+    "parameters": [
+      {
+        "name": "csGyroParaW",
+        "type": "CS_GYRO_WHOLE_PARA_T"
+      },
+      {
+        "name": "csStsCorrPara",
+        "type": "CS_STS_CORR_PARA_T"
+      },
+      {
+        "name": "m_WorkMode",
+        "type": "unint32"
+      }
+    ],
+    "state": [],
+    "input": [
+      {
+        "name": "num",
+        "type": "const unint32"
+      },
+      {
+        "name": "cab",
+        "type": "unint32"
+      }
+    ],
+    "output": [],
+    "inout": []
+  }
+}
