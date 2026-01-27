@@ -1,10 +1,36 @@
-{
-  "function_name": "g",
-  "interface_semantics": {
-    "parameters": [],
-    "state": [],
-    "input": [],
-    "output": [],
-    "inout": []
+[
+  {
+    "function_name": "g",
+    "interface_semantics": {
+      "parameters": [],
+      "state": [],
+      "input": [],
+      "output": [
+        {
+          "name": "a",
+          "type": "int[3]"
+        },
+        {
+          "name": "ptr",
+          "type": "int *"
+        }
+      ],
+      "inout": []
+    }
+  },
+  {
+    "function_name": "f",
+    "interface_semantics": {
+      "parameters": [],
+      "state": [],
+      "input": [],
+      "output": [
+        {
+          "name": "p",
+          "type": "int *"
+        }
+      ],
+      "inout": []
+    }
   }
-}
+]

@@ -1,15 +1,13 @@
 #include "common.h"
 
 int a[3];
+int *ptr = &a[0];
 
-void f(double d) {
-    d++;
+void f(int *p) {
+    p[0] = 1;
 }
 
-void g(int *x) {
-    int i=0;
-}
-
-void modify(int num) {
-    f((double)(num+__var));
+void g() {
+    // ptr = a;
+    f(a);
 }

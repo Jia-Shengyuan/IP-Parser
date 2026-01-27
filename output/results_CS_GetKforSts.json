@@ -1,19 +1,21 @@
-{
-  "function_name": "CS_GetKforSts",
-  "interface_semantics": {
-    "parameters": [],
-    "state": [],
-    "input": [
-      {
-        "name": "idx1",
-        "type": "siint32"
-      },
-      {
-        "name": "idx2",
-        "type": "siint32"
-      }
-    ],
-    "output": [],
-    "inout": []
+[
+  {
+    "function_name": "CS_GetKforSts",
+    "interface_semantics": {
+      "parameters": [],
+      "state": [],
+      "input": [
+        {
+          "name": "idx1",
+          "type": "siint32"
+        },
+        {
+          "name": "idx2",
+          "type": "siint32"
+        }
+      ],
+      "output": [],
+      "inout": []
+    }
   }
-}
+]

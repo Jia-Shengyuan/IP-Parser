@@ -54,17 +54,8 @@ class Parser:
         memMana = MemoryManager.instance()
         memMana.allocate_globals(self.global_vars)
 
-        param_vars: List[Variable] = []
-        for func in self.functions:
-            if func.vars_dict:
-                for var in func.vars_dict.values():
-                    if var.domain == VARIABLE_DOMAIN.PARAM:
-                        param_vars.append(var)
-
-        param_pointer_defaults = memMana.allocate_params(param_vars)
-
         func_parser = FuncParser.instance()
-        func_parser.initialize(self.global_vars, self._global_pointer_inits, self._function_nodes, param_pointer_defaults)
+        func_parser.initialize(self.global_vars, self._global_pointer_inits, self._function_nodes, {})
 
         if entry_function:
             order = reverse_topo_from_project(self.project_path, entry_function)

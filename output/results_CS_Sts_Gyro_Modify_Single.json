@@ -1,32 +1,121 @@
-{
-  "function_name": "CS_Sts_Gyro_Modify_Single",
-  "interface_semantics": {
-    "parameters": [
-      {
-        "name": "csGyroParaW",
-        "type": "CS_GYRO_WHOLE_PARA_T"
-      },
-      {
-        "name": "csStsCorrPara",
-        "type": "CS_STS_CORR_PARA_T"
-      },
-      {
-        "name": "m_WorkMode",
-        "type": "unint32"
-      }
-    ],
-    "state": [],
-    "input": [
-      {
-        "name": "num",
-        "type": "const unint32"
-      },
-      {
-        "name": "cab",
-        "type": "unint32"
-      }
-    ],
-    "output": [],
-    "inout": []
+[
+  {
+    "function_name": "CS_Sts_Gyro_Modify_Single",
+    "interface_semantics": {
+      "parameters": [
+        {
+          "name": "csGyroParaW",
+          "type": "CS_GYRO_WHOLE_PARA_T"
+        },
+        {
+          "name": "csStsCorrPara",
+          "type": "CS_STS_CORR_PARA_T"
+        },
+        {
+          "name": "m_WorkMode",
+          "type": "unint32"
+        }
+      ],
+      "state": [],
+      "input": [
+        {
+          "name": "num",
+          "type": "const unint32"
+        },
+        {
+          "name": "cab",
+          "type": "unint32"
+        }
+      ],
+      "output": [],
+      "inout": []
+    }
+  },
+  {
+    "function_name": "StsCompensate",
+    "interface_semantics": {
+      "parameters": [],
+      "state": [],
+      "input": [
+        {
+          "name": "wGyro",
+          "type": "const float64 *"
+        },
+        {
+          "name": "dtime",
+          "type": "float64"
+        }
+      ],
+      "output": [
+        {
+          "name": "pSTSdeltaZ",
+          "type": "float64 *"
+        }
+      ],
+      "inout": []
+    }
+  },
+  {
+    "function_name": "StsFilter",
+    "interface_semantics": {
+      "parameters": [],
+      "state": [],
+      "input": [
+        {
+          "name": "mblimit",
+          "type": "const float64"
+        }
+      ],
+      "output": [
+        {
+          "name": "bi_or_w",
+          "type": "float64 *"
+        },
+        {
+          "name": "pQ",
+          "type": "float64 *"
+        }
+      ],
+      "inout": []
+    }
+  },
+  {
+    "function_name": "StsModify",
+    "interface_semantics": {
+      "parameters": [],
+      "state": [],
+      "input": [
+        {
+          "name": "mdzmax",
+          "type": "float64"
+        }
+      ],
+      "output": [],
+      "inout": [
+        {
+          "name": "pdeltaZ",
+          "type": "float64 *"
+        }
+      ]
+    }
+  },
+  {
+    "function_name": "CS_GetKforSts",
+    "interface_semantics": {
+      "parameters": [],
+      "state": [],
+      "input": [
+        {
+          "name": "idx1",
+          "type": "siint32"
+        },
+        {
+          "name": "idx2",
+          "type": "siint32"
+        }
+      ],
+      "output": [],
+      "inout": []
+    }
   }
-}
+]

@@ -184,10 +184,105 @@ class MemoryManager:
 				if not base_type:
 					base_type = "void"
 				dummy_name = f"{var.name}__pointee"
-				dummy_addr = self._allocate(dummy_name, base_type, parent=0, structs_manager=structs_manager)
+				dummy_type = base_type
+				if var.is_pointer_array and var.pointer_array_len > 0:
+					dummy_type = f"{base_type}[{var.pointer_array_len}]"
+				dummy_addr = self._allocate(dummy_name, dummy_type, parent=0, structs_manager=structs_manager)
 				pointer_defaults[var.name] = dummy_addr
 				self.add_pointer_ref(dummy_addr, var.name)
 		return pointer_defaults
+
+	def allocate_params_for_function(self, variables: List[Variable]) -> Dict[str, int]:
+		"""
+		Allocate abstract memory for a function's parameter variables.
+		Pointer params with detected array usage are allocated as arrays.
+		Returns a mapping of pointer param name -> dummy pointee address.
+		"""
+		structs_manager = StructsManager.instance()
+		pointer_defaults: Dict[str, int] = {}
+		for var in variables:
+			if var.address:
+				continue
+			if var.is_pointer and var.is_pointer_array and var.pointer_array_len > 0:
+				base_type = structs_manager.get_decoded_name(var.raw_type).rstrip()
+				if base_type.endswith("*"):
+					base_type = base_type[:-1].strip()
+				array_type = f"{base_type}[{var.pointer_array_len}]"
+				var.raw_type = array_type
+				var.kind = VARIABLE_KIND.ARRAY
+				var.is_pointer = False
+			addr = self._allocate(var.name, var.raw_type, parent=0, structs_manager=structs_manager, variable=var)
+			var.address = addr
+			if var.is_pointer:
+				base_type = structs_manager.get_decoded_name(var.raw_type).rstrip()
+				if base_type.endswith("*"):
+					base_type = base_type[:-1].strip()
+				if not base_type:
+					base_type = "void"
+				dummy_name = f"{var.name}__pointee"
+				dummy_type = base_type
+				if var.is_pointer_array and var.pointer_array_len > 0:
+					dummy_type = f"{base_type}[{var.pointer_array_len}]"
+				dummy_addr = self._allocate(dummy_name, dummy_type, parent=0, structs_manager=structs_manager)
+				pointer_defaults[var.name] = dummy_addr
+				self.add_pointer_ref(dummy_addr, var.name)
+		return pointer_defaults
+
+	def ensure_pointer_array(self, dummy_name: str, base_type: str, length: int) -> None:
+		if length <= 0:
+			return
+		addr = self.get_address(dummy_name)
+		if addr is None:
+			return
+		block = self.get_block(addr)
+		if block is None or block.var is None:
+			return
+		current_len = 0
+		if block.var.kind == VARIABLE_KIND.ARRAY:
+			try:
+				_, current_len = StructsManager.instance().parse_array_type(block.var.raw_type)
+			except Exception:
+				current_len = 0
+		if length > current_len:
+			block.var.raw_type = f"{base_type}[{length}]"
+			block.var.kind = VARIABLE_KIND.ARRAY
+			block.var.is_pointer = False
+			for i in range(length):
+				key = str(i)
+				name = f"{dummy_name}[{i}]"
+				if name in self._map:
+					block.var.points_to.setdefault(key, self._map[name])
+					continue
+				block.var.points_to[key] = self._next_addr
+				self._allocate(name, base_type, parent=addr, structs_manager=StructsManager.instance())
+
+	def convert_pointer_param_to_array(self, var_name: str, base_type: str, length: int) -> None:
+		if length <= 0:
+			return
+		addr = self.get_address(var_name)
+		if addr is None:
+			return
+		block = self.get_block(addr)
+		if block is None or block.var is None:
+			return
+		block.var.raw_type = f"{base_type}[{length}]"
+		block.var.kind = VARIABLE_KIND.ARRAY
+		block.var.is_pointer = False
+		for i in range(length):
+			key = str(i)
+			name = f"{var_name}[{i}]"
+			if name in self._map:
+				block.var.points_to.setdefault(key, self._map[name])
+				continue
+			block.var.points_to[key] = self._next_addr
+			self._allocate(name, base_type, parent=addr, structs_manager=StructsManager.instance())
+
+		dummy_name = f"{var_name}__pointee"
+		for b in self._blocks:
+			if b is None or b.var is None:
+				continue
+			if b.var.name == dummy_name or b.var.name.startswith(f"{dummy_name}[") or b.var.name.startswith(f"{dummy_name}."):
+				b.var.hidden = True
 
 	def _allocate(self, var_name: str, type_name: str, parent: int, structs_manager: StructsManager, variable: Variable | None = None) -> int:
 		

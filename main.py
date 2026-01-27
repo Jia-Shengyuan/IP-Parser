@@ -14,7 +14,7 @@ def _to_brief(var) -> BriefVariable:
 		return None
 	if name.startswith("<") and ">" in name:
 		name = name.split(">", 1)[1]
-	return BriefVariable(name=name, type=var.raw_type)
+	return BriefVariable(name=name, type=getattr(var, "original_raw_type", var.raw_type))
 
 
 def _summarize_function(parser: Parser, target_name: str) -> FunctionSummarize:
@@ -92,10 +92,14 @@ def _summary_to_dict(summary: FunctionSummarize) -> dict:
 
 if __name__ == "__main__":
 	if len(sys.argv) < 2:
-		raise SystemExit("Usage: python main.py <function_name> [project_path]")
+		raise SystemExit("Usage: python main.py <function_name> [project_path] [--memory]")
 
 	function_name = sys.argv[1]
-	project_path = sys.argv[2] if len(sys.argv) > 2 else "input"
+	project_path = "input"
+	if len(sys.argv) > 2 and not sys.argv[2].startswith("--"):
+		project_path = sys.argv[2]
+
+	with_memory = any(arg == "--memory" for arg in sys.argv[2:])
 
 	parser = Parser(project_path)
 	parser.parse(entry_function=function_name)
@@ -112,3 +116,23 @@ if __name__ == "__main__":
 	with open(output_path, "w", encoding="utf-8") as f:
 		f.write(json.dumps([_summary_to_dict(s) for s in summaries], ensure_ascii=False, indent=2))
 	print(f"Summaries for reachable functions from '{function_name}' written to {output_path}")
+
+	if with_memory:
+		mem = MemoryManager.instance()
+		memory_path = os.path.join(output_dir, f"memory_{function_name}.txt")
+		with open(memory_path, "w", encoding="utf-8") as f:
+			f.write("Memory Blocks:\n\n")
+			for addr, block in enumerate(mem._blocks):
+				if addr == 0 or block is None:
+					continue
+				if getattr(block.var, "hidden", False):
+					continue
+				read_funcs = sorted(block.var.read)
+				write_funcs = sorted(block.var.write)
+				f.write(
+					f"  M: Addr {addr}: {block.var.name} "
+					f"(type {block.var.raw_type}, parent={block.parent}, size={parser.structs.get_size(block.var.raw_type)})\n"
+				)
+				f.write(f"     R: {', '.join(read_funcs) if read_funcs else '-'}\n")
+				f.write(f"     W: {', '.join(write_funcs) if write_funcs else '-'}\n")
+		print(f"Memory report for '{function_name}' written to {memory_path}")

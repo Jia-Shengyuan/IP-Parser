@@ -66,6 +66,95 @@ class FuncParser:
 	def finalize(self) -> None:
 		self._mem.analyze_memories()
 
+	def _scan_pointer_arrays(self, node, current_func: Function) -> None:
+		if not current_func.vars_dict:
+			return
+		param_map = {
+			var.name.split(">", 1)[1]: var
+			for var in current_func.vars_dict.values()
+			if var.domain.name == "PARAM" and var.is_pointer
+		}
+		if not param_map:
+			return
+
+		def unwrap(cursor):
+			while cursor is not None and cursor.kind in FuncParser.UNWRAP_KINDS:
+				cursor = next(cursor.get_children(), None)
+			return cursor
+
+		def resolve_decl_name(cursor) -> Optional[str]:
+			cursor = unwrap(cursor)
+			if cursor is None:
+				return None
+			if cursor.kind == CursorKind.UNARY_OPERATOR:
+				child = next(cursor.get_children(), None)
+				return resolve_decl_name(child)
+			if cursor.kind == CursorKind.DECL_REF_EXPR:
+				return cursor.spelling
+			if cursor.kind == CursorKind.MEMBER_REF_EXPR:
+				child = next(cursor.get_children(), None)
+				return resolve_decl_name(child)
+			if cursor.kind == CursorKind.ARRAY_SUBSCRIPT_EXPR:
+				child = next(cursor.get_children(), None)
+				return resolve_decl_name(child)
+			if cursor.kind == CursorKind.CSTYLE_CAST_EXPR:
+				for child in cursor.get_children():
+					name = resolve_decl_name(child)
+					if name:
+						return name
+			return None
+
+		def record_array_index(base_name: str, index_cursor) -> None:
+			param_var = param_map.get(base_name)
+			if not param_var:
+				return
+			index_val = self._get_integer_literal_expr(index_cursor)
+			if index_val is None:
+				return
+			idx = int(index_val)
+			param_var.is_pointer_array = True
+			param_var.pointer_array_len = max(param_var.pointer_array_len, idx + 1)
+
+		def handle_call(cursor) -> None:
+			callee_name = cursor.spelling or ""
+			if not callee_name:
+				referenced = getattr(cursor, "referenced", None)
+				callee_name = getattr(referenced, "spelling", "") if referenced else ""
+			if not callee_name or callee_name not in self._functions:
+				return
+			_, callee_func = self._functions[callee_name]
+			param_names = callee_func.params or []
+			arg_nodes = list(cursor.get_arguments())
+			for i, param_name in enumerate(param_names):
+				if i >= len(arg_nodes):
+					break
+				param_key = f"<{callee_func.name}>{param_name}"
+				param_var = callee_func.vars_dict.get(param_key) if callee_func.vars_dict else None
+				if param_var is None or not param_var.is_pointer or param_var.pointer_array_len <= 0:
+					continue
+				arg_name = resolve_decl_name(arg_nodes[i])
+				caller_var = param_map.get(arg_name)
+				if caller_var is None:
+					continue
+				caller_var.is_pointer_array = True
+				caller_var.pointer_array_len = max(caller_var.pointer_array_len, param_var.pointer_array_len)
+
+		def walk(cursor) -> None:
+			if cursor is None:
+				return
+			if cursor.kind == CursorKind.ARRAY_SUBSCRIPT_EXPR:
+				children = list(cursor.get_children())
+				if len(children) >= 2:
+					base = resolve_decl_name(children[0])
+					if base:
+						record_array_index(base, children[1])
+			if cursor.kind == CursorKind.CALL_EXPR:
+				handle_call(cursor)
+			for child in cursor.get_children():
+				walk(child)
+
+		walk(node)
+
 	# Extract a constant integer literal from a cursor if present.
 	def _get_integer_literal_expr(self, cursor) -> Optional[str]:
 		if cursor is None:
@@ -129,17 +218,18 @@ class FuncParser:
 	# Parse a function node in sequential order and update Variable read/write sets.
 	def parse_function(self, node, func: Function) -> None:
 		self._mem.clear_pointer_refs()
-		# Restore parameter pointer default references.
-		for pointer_name, addr in self._pointer_map.items():
-			if addr is not None and pointer_name.startswith("<"):
-				self._mem.add_pointer_ref(addr, pointer_name)
 		for pointer_name, init_cursor in self._global_pointer_inits.items():
 			target_addr = self._resolve_pointer_target_expr(init_cursor)
 			if target_addr is not None:
 				self._mem.add_pointer_ref(target_addr, pointer_name)
 
+		self._scan_pointer_arrays(node, func)
+		param_pointer_defaults = self._mem.allocate_params_for_function(list(func.vars_dict.values()) if func.vars_dict else [])
+
 		written: Dict[str, bool] = {}
 		pointer_map: Dict[str, Optional[int]] = dict(self._pointer_map)
+		for pointer_name, addr in param_pointer_defaults.items():
+			pointer_map[pointer_name] = addr
 		call_stack = set()
 		self._parse_function_with_context(node, func, func, pointer_map, written, call_stack)
 
@@ -343,6 +433,12 @@ class FuncParser:
 			if expr.kind in FuncParser.UNWRAP_KINDS:
 				child = next(expr.get_children(), None)
 				return resolve_pointer_target(child)
+			if expr.kind == CursorKind.CSTYLE_CAST_EXPR:
+				for child in expr.get_children():
+					addr = resolve_pointer_target(child)
+					if addr is not None:
+						return addr
+				return None
 			if expr.kind == CursorKind.UNARY_OPERATOR and get_operator(expr) == "&":
 				child = next(expr.get_children(), None)
 				if child is None:
@@ -353,6 +449,9 @@ class FuncParser:
 			ptr_key = resolve_pointer_key(ptr_name)
 			if ptr_key is not None:
 				return pointer_map.get(ptr_key)
+			if expr.kind == CursorKind.DECL_REF_EXPR:
+				name = expr.spelling
+				return get_addr_for_name(name) if name else None
 			return None
 
 		# Handle lvalue writes, including compound assignments.
@@ -445,7 +544,9 @@ class FuncParser:
 						if addr is not None:
 							block = self._mem.get_block(addr)
 							if block is not None and block.var is not None and not block.var.is_pointer:
-								mark_read(addr)
+								# Array name used as a pointer (e.g., function argument) does not count as read.
+								if not (expr.kind == CursorKind.DECL_REF_EXPR and block.var.kind.name == "ARRAY"):
+									mark_read(addr)
 						# Avoid double-counting base identifiers in member expressions.
 						if expr.kind == CursorKind.MEMBER_REF_EXPR:
 							children = list(expr.get_children())
@@ -484,7 +585,7 @@ class FuncParser:
 							break
 						param_key = f"<{callee_func.name}>{param_name}"
 						param_var = callee_func.vars_dict.get(param_key) if callee_func.vars_dict else None
-						if param_var is not None and param_var.is_pointer:
+						if param_var is not None and (param_var.is_pointer or param_var.is_pointer_array):
 							param_targets[param_name] = resolve_pointer_target(arg_nodes[i])
 							arg_name, _ = resolve_var_access(arg_nodes[i])
 							param_arg_names[param_name] = arg_name
@@ -516,6 +617,22 @@ class FuncParser:
 					for var_name in list(callee_func.reads):
 						if var_name.startswith(prefix):
 							# Handle pointer-param dummy reads only.
+							if "__pointee[" in var_name:
+								param_name = var_name[len(prefix):].split("__pointee", 1)[0]
+								idx = var_name.split("__pointee[", 1)[1].removesuffix("]")
+								target_addr = param_targets.get(param_name)
+								if target_addr is not None:
+									block = self._mem.get_block(target_addr)
+									base_name = block.var.name if block and block.var else None
+									arg_name = param_arg_names.get(param_name) or base_name
+									if arg_name:
+										add_non_state_name(arg_name)
+										elem_addr = get_addr_for_name(f"{arg_name}[{idx}]")
+										if elem_addr is not None:
+											mark_read(elem_addr)
+										else:
+											mark_read(target_addr)
+								continue
 							if var_name.endswith("__pointee"):
 								param_name = var_name[len(prefix):].removesuffix("__pointee")
 								target_addr = param_targets.get(param_name)
@@ -525,12 +642,43 @@ class FuncParser:
 									if arg_name:
 										add_non_state_name(arg_name)
 									mark_read(target_addr)
+								continue
+							# Handle pointer-param array elements allocated as params.
+							local_name = var_name[len(prefix):]
+							param_base = local_name.split("[", 1)[0].split(".", 1)[0]
+							arg_name = param_arg_names.get(param_base)
+							if arg_name:
+								add_non_state_name(arg_name)
+								mapped_name = f"{arg_name}{local_name[len(param_base):]}"
+								mapped_addr = get_addr_for_name(mapped_name)
+								if mapped_addr is not None:
+									mark_read(mapped_addr)
+								else:
+									target_addr = param_targets.get(param_base)
+									if target_addr is not None:
+										mark_read(target_addr)
 							# Non-pointer params are counted via argument evaluation, skip here.
 							continue
 						merge_global_read(var_name)
 
 					for var_name in list(callee_func.writes):
 						if var_name.startswith(prefix):
+							if "__pointee[" in var_name:
+								param_name = var_name[len(prefix):].split("__pointee", 1)[0]
+								idx = var_name.split("__pointee[", 1)[1].removesuffix("]")
+								target_addr = param_targets.get(param_name)
+								if target_addr is not None:
+									block = self._mem.get_block(target_addr)
+									base_name = block.var.name if block and block.var else None
+									arg_name = param_arg_names.get(param_name) or base_name
+									if arg_name:
+										add_non_state_name(arg_name)
+										elem_addr = get_addr_for_name(f"{arg_name}[{idx}]")
+										if elem_addr is not None:
+											mark_write(elem_addr)
+										else:
+											mark_write(target_addr)
+								continue
 							if var_name.endswith("__pointee"):
 								param_name = var_name[len(prefix):].removesuffix("__pointee")
 								target_addr = param_targets.get(param_name)
@@ -540,6 +688,21 @@ class FuncParser:
 									if arg_name:
 										add_non_state_name(arg_name)
 									mark_write(target_addr)
+								continue
+							# Handle pointer-param array elements allocated as params.
+							local_name = var_name[len(prefix):]
+							param_base = local_name.split("[", 1)[0].split(".", 1)[0]
+							arg_name = param_arg_names.get(param_base)
+							if arg_name:
+								add_non_state_name(arg_name)
+								mapped_name = f"{arg_name}{local_name[len(param_base):]}"
+								mapped_addr = get_addr_for_name(mapped_name)
+								if mapped_addr is not None:
+									mark_write(mapped_addr)
+								else:
+									target_addr = param_targets.get(param_base)
+									if target_addr is not None:
+										mark_write(target_addr)
 							continue
 							# Writes to by-value params do not affect caller.
 							continue
@@ -550,7 +713,12 @@ class FuncParser:
 			if cursor.kind in (CursorKind.DECL_REF_EXPR, CursorKind.MEMBER_REF_EXPR, CursorKind.ARRAY_SUBSCRIPT_EXPR):
 				name, nonconst = resolve_var_access(cursor)
 				if name is not None:
-					handle_access(name, nonconst, read=True, write=False)
+					addr = get_addr_for_name(name)
+					if addr is not None:
+						block = self._mem.get_block(addr)
+						if block is not None and block.var is not None:
+							if not (cursor.kind == CursorKind.DECL_REF_EXPR and block.var.kind.name == "ARRAY"):
+								handle_access(name, nonconst, read=True, write=False)
 				children = list(cursor.get_children())
 				if cursor.kind == CursorKind.MEMBER_REF_EXPR:
 					if children:

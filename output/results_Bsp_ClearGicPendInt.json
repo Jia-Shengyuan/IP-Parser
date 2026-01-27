@@ -1,15 +1,17 @@
-{
-  "function_name": "Bsp_ClearGicPendInt",
-  "interface_semantics": {
-    "parameters": [],
-    "state": [],
-    "input": [
-      {
-        "name": "isrNo",
-        "type": "U32"
-      }
-    ],
-    "output": [],
-    "inout": []
+[
+  {
+    "function_name": "Bsp_ClearGicPendInt",
+    "interface_semantics": {
+      "parameters": [],
+      "state": [],
+      "input": [
+        {
+          "name": "isrNo",
+          "type": "U32"
+        }
+      ],
+      "output": [],
+      "inout": []
+    }
   }
-}
+]
