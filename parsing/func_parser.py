@@ -303,6 +303,15 @@ class FuncParser:
 			if cursor.kind == CursorKind.UNARY_OPERATOR and get_operator(cursor) in ("*", "&"):
 				child = next(cursor.get_children(), None)
 				return resolve_pointer_name(child)
+			if cursor.kind in (CursorKind.BINARY_OPERATOR, CursorKind.COMPOUND_ASSIGNMENT_OPERATOR, CursorKind.CONDITIONAL_OPERATOR):
+				for child in cursor.get_children():
+					name = resolve_pointer_name(child)
+					if name:
+						return name
+				return None
+			if cursor.kind in (CursorKind.ARRAY_SUBSCRIPT_EXPR, CursorKind.MEMBER_REF_EXPR):
+				child = next(cursor.get_children(), None)
+				return resolve_pointer_name(child)
 			if cursor.kind == CursorKind.DECL_REF_EXPR:
 				return cursor.spelling
 			return None
@@ -439,10 +448,16 @@ class FuncParser:
 								mark_read(addr)
 						# Avoid double-counting base identifiers in member expressions.
 						if expr.kind == CursorKind.MEMBER_REF_EXPR:
+							children = list(expr.get_children())
+							if children:
+								collect_arg_reads(children[0])
 							return
 						if expr.kind == CursorKind.ARRAY_SUBSCRIPT_EXPR:
+							# ARRAY_SUBSCRIPT_EXPR semantically has two key children: base and index.
+							# Only traverse those two to avoid double-counting implicit/extra nodes.
 							children = list(expr.get_children())
 							if len(children) >= 2:
+								collect_arg_reads(children[0])
 								collect_arg_reads(children[1])
 							return
 					for child in ordered_children(expr):
@@ -536,9 +551,15 @@ class FuncParser:
 				name, nonconst = resolve_var_access(cursor)
 				if name is not None:
 					handle_access(name, nonconst, read=True, write=False)
+				children = list(cursor.get_children())
+				if cursor.kind == CursorKind.MEMBER_REF_EXPR:
+					if children:
+						handle_expr(children[0])
 				if cursor.kind == CursorKind.ARRAY_SUBSCRIPT_EXPR:
-					children = list(cursor.get_children())
+					# ARRAY_SUBSCRIPT_EXPR semantically has two key children: base and index.
+					# Only traverse those two to avoid double-counting implicit/extra nodes.
 					if len(children) >= 2:
+						handle_expr(children[0])
 						handle_expr(children[1])
 				return
 

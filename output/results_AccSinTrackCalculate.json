@@ -1,29 +1,46 @@
-{
-  "function_name": "AccSinTrackCalculate",
-  "interface_semantics": {
-    "parameters": [
-      {
-        "name": "DBL_PI",
-        "type": "const float64"
-      }
-    ],
-    "state": [],
-    "input": [
-      {
-        "name": "dtv",
-        "type": "float64"
-      },
-      {
-        "name": "dtTr",
-        "type": "float64"
-      }
-    ],
-    "output": [],
-    "inout": [
-      {
-        "name": "past",
-        "type": "SMnvrData *"
-      }
-    ]
+[
+  {
+    "function_name": "AccSinTrackCalculate",
+    "interface_semantics": {
+      "parameters": [
+        {
+          "name": "DBL_PI",
+          "type": "const float64"
+        }
+      ],
+      "state": [],
+      "input": [
+        {
+          "name": "dtv",
+          "type": "float64"
+        },
+        {
+          "name": "dtTr",
+          "type": "float64"
+        }
+      ],
+      "output": [],
+      "inout": [
+        {
+          "name": "past",
+          "type": "SMnvrData *"
+        }
+      ]
+    }
+  },
+  {
+    "function_name": "AccSinTrackInit",
+    "interface_semantics": {
+      "parameters": [],
+      "state": [],
+      "input": [],
+      "output": [],
+      "inout": [
+        {
+          "name": "past",
+          "type": "SMnvrData *"
+        }
+      ]
+    }
   }
-}
+]

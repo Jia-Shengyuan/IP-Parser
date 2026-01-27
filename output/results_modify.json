@@ -1,9 +1,19 @@
 {
   "function_name": "modify",
   "interface_semantics": {
-    "parameters": [],
+    "parameters": [
+      {
+        "name": "__var",
+        "type": "int"
+      }
+    ],
     "state": [],
-    "input": [],
+    "input": [
+      {
+        "name": "num",
+        "type": "int"
+      }
+    ],
     "output": [],
     "inout": []
   }

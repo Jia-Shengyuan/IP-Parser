@@ -5,6 +5,7 @@ import os
 from parsing.parser import Parser
 from memory_managing.memory import MemoryManager
 from models.summarize import FunctionSummarize, BriefVariable
+from utils.callgraph import reverse_topo_from_project
 
 
 def _to_brief(var) -> BriefVariable:
@@ -47,7 +48,13 @@ def _summarize_function(parser: Parser, target_name: str) -> FunctionSummarize:
 			brief = _to_brief(var)
 			if brief:
 				summary.interface_semantics.parameters.append(brief)
-		elif r_target and w_target and var.read.issubset({target_name}) and var.write.issubset({target_name}) and var.name not in target_func.non_state:
+		elif (
+			r_target and w_target
+			and var.domain == var.domain.GLOBAL
+			and var.read.issubset({target_name})
+			and var.write.issubset({target_name})
+			and var.name not in target_func.non_state
+		):
 			brief = _to_brief(var)
 			if brief:
 				summary.interface_semantics.state.append(brief)
@@ -93,10 +100,15 @@ if __name__ == "__main__":
 	parser = Parser(project_path)
 	parser.parse(entry_function=function_name)
 
-	summary = _summarize_function(parser, function_name)
+	order = reversed(reverse_topo_from_project(project_path, function_name))
+	func_names = [name for name in order if any(f.name == name for f in parser.functions)]
+	if function_name not in func_names:
+		func_names.append(function_name)
+
+	summaries = [_summarize_function(parser, name) for name in func_names]
 	output_dir = "output"
 	os.makedirs(output_dir, exist_ok=True)
 	output_path = os.path.join(output_dir, f"results_{function_name}.json")
 	with open(output_path, "w", encoding="utf-8") as f:
-		f.write(json.dumps(_summary_to_dict(summary), ensure_ascii=False, indent=2))
-	print(f"Summary for function '{function_name}' written to {output_path}")
+		f.write(json.dumps([_summary_to_dict(s) for s in summaries], ensure_ascii=False, indent=2))
+	print(f"Summaries for reachable functions from '{function_name}' written to {output_path}")

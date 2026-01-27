@@ -1,3 +1,4 @@
+#include "common.h"
 
 int a[3];
 
@@ -10,5 +11,5 @@ void g(int *x) {
 }
 
 void modify(int num) {
-    g(&(a[0]));
+    f((double)(num+__var));
 }

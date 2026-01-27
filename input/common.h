@@ -303,5 +303,7 @@
 #define ALL_USR_ISR 0xFFFFFFFFu
 #endif
 
+int __var = 0;
+
 
 #endif // AUTO_GENERATED_COMMON_H
