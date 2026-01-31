@@ -92,12 +92,15 @@ def _summary_to_dict(summary: FunctionSummarize) -> dict:
 
 if __name__ == "__main__":
 	if len(sys.argv) < 2:
-		raise SystemExit("Usage: python main.py <function_name> [project_path] [--memory]")
+		raise SystemExit("Usage: python main.py <function_name> [project_path] [output_dir] [--memory]")
 
 	function_name = sys.argv[1]
 	project_path = "input"
+	output_dir = "output"
 	if len(sys.argv) > 2 and not sys.argv[2].startswith("--"):
 		project_path = sys.argv[2]
+	if len(sys.argv) > 3 and not sys.argv[3].startswith("--"):
+		output_dir = sys.argv[3]
 
 	with_memory = any(arg == "--memory" for arg in sys.argv[2:])
 
@@ -109,8 +112,11 @@ if __name__ == "__main__":
 	if function_name not in func_names:
 		func_names.append(function_name)
 
-	summaries = [_summarize_function(parser, name) for name in func_names]
-	output_dir = "output"
+	summaries = [
+		_summarize_function(parser, name)
+		for name in func_names
+		if name not in getattr(parser, "config_function_names", set())
+	]
 	os.makedirs(output_dir, exist_ok=True)
 	output_path = os.path.join(output_dir, f"results_{function_name}.json")
 	with open(output_path, "w", encoding="utf-8") as f:

@@ -1,0 +1,13 @@
+[
+  {
+    "function_name": "sqrt",
+    "arguments": [
+        {
+            "name": "x",
+            "type": "double",
+            "read": true,
+            "write": false
+        }
+    ]
+  }
+]

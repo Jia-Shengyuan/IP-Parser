@@ -1,11 +1,16 @@
 [
   {
-    "function_name": "g",
+    "function_name": "f",
     "interface_semantics": {
       "parameters": [],
       "state": [],
       "input": [],
-      "output": [],
+      "output": [
+        {
+          "name": "p",
+          "type": "unint32 *"
+        }
+      ],
       "inout": []
     }
   }

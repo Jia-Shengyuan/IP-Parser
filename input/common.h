@@ -263,6 +263,9 @@
 #define SI_DSS 2u
 #endif
 
+typedef unsigned int       unint32;
+
+
 #ifndef SI_RIGA
 #define SI_RIGA 3u
 #endif

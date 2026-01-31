@@ -1,6 +1,7 @@
 import sys
 import os
 from typing import List, Dict, Any
+import json
 
 # Allow importing from models directory by adding parent directory to sys.path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -12,6 +13,7 @@ from clang.cindex import Index, CursorKind, TypeKind
 
 from models.variables import Variable, VARIABLE_DOMAIN, VARIABLE_KIND
 from models.functions import Function
+from models.configs import FunctionConfig, VariableConfig
 from models.structs import StructsManager
 from memory_managing.memory import MemoryManager
 from parsing.func_parser import FuncParser
@@ -31,6 +33,7 @@ class Parser:
         self._seen_struct_nodes = set() # Set of (file_path, line, col) for struct deduplication
         self._function_nodes = []  # List of (Cursor, Function)
         self._global_pointer_inits: Dict[str, Any] = {}  # pointer var name -> init cursor
+        self.config_function_names: set[str] = set()
 
     def parse(self, entry_function: str | None = None):
         """
@@ -51,6 +54,8 @@ class Parser:
         # Calculate struct sizes after all structs collected
         self.structs.calculate_size()
 
+        self._load_function_configs()
+
         memMana = MemoryManager.instance()
         memMana.allocate_globals(self.global_vars)
 
@@ -63,9 +68,13 @@ class Parser:
             for func_name in order:
                 if func_name in func_map:
                     func_node, func = func_map[func_name]
+                    if func_node is None:
+                        continue
                     func_parser.parse_function(func_node, func)
         else:
             for func_node, func in self._function_nodes:
+                if func_node is None:
+                    continue
                 func_parser.parse_function(func_node, func)
 
         func_parser.finalize()
@@ -251,4 +260,104 @@ class Parser:
         )
         self.functions.append(func)
         self._function_nodes.append((node, func))
+
+    def _load_function_configs(self) -> None:
+        for filename, data in self._iter_function_config_files():
+            self._parse_function_config_file(filename, data)
+
+    def _iter_function_config_files(self) -> List[tuple[str, list]]:
+        base_dir = self.project_path
+        if os.path.isfile(base_dir):
+            base_dir = os.path.dirname(base_dir)
+        candidates = [
+            os.path.join(base_dir, "config"),
+            os.path.join(os.path.dirname(base_dir), "config"),
+        ]
+        items: List[tuple[str, list]] = []
+        seen_paths = set()
+        for config_dir in candidates:
+            if not os.path.isdir(config_dir):
+                continue
+            for filename in os.listdir(config_dir):
+                if not filename.endswith(".json"):
+                    continue
+                path = os.path.join(config_dir, filename)
+                if path in seen_paths:
+                    continue
+                seen_paths.add(path)
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                except Exception:
+                    continue
+                if not isinstance(data, list):
+                    continue
+                items.append((filename, data))
+        return items
+
+    def _parse_function_config_file(self, filename: str, data: list) -> None:
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            func_name = item.get("function_name")
+            args = item.get("arguments", [])
+            if not func_name or not isinstance(args, list):
+                continue
+            if any(f.name == func_name for f in self.functions):
+                continue
+            var_cfgs: List[VariableConfig] = []
+            for arg in args:
+                if not isinstance(arg, dict):
+                    continue
+                name = arg.get("name")
+                type_str = arg.get("type")
+                if not name or not type_str:
+                    continue
+                var_cfgs.append(VariableConfig(
+                    name=name,
+                    type=type_str,
+                    read=bool(arg.get("read", False)),
+                    write=bool(arg.get("write", False)),
+                ))
+            func_cfg = FunctionConfig(function_name=func_name, arguments=var_cfgs)
+
+            params = [vc.name for vc in func_cfg.arguments]
+            func_vars_dict: Dict[str, Variable] = {}
+            reads = set()
+            writes = set()
+            for vc in func_cfg.arguments:
+                raw_type = vc.type
+                kind = VARIABLE_KIND.BUILTIN
+                if self.structs.is_pointer(raw_type):
+                    kind = VARIABLE_KIND.POINTER
+                elif self.structs.is_array(raw_type):
+                    kind = VARIABLE_KIND.ARRAY
+                elif self.structs.is_struct(raw_type):
+                    kind = VARIABLE_KIND.RECORD
+                is_pointer = self.structs.is_pointer(raw_type)
+                prefixed_name = f"<{func_name}>{vc.name}"
+                func_vars_dict[prefixed_name] = Variable(
+                    name=prefixed_name,
+                    raw_type=raw_type,
+                    kind=kind,
+                    domain=VARIABLE_DOMAIN.PARAM,
+                    is_pointer=is_pointer,
+                    points_to={},
+                )
+                if is_pointer:
+                    if vc.read:
+                        reads.add(f"<{func_name}>{vc.name}__pointee")
+                    if vc.write:
+                        writes.add(f"<{func_name}>{vc.name}__pointee")
+            func = Function(
+                name=func_name,
+                source_file=os.path.join("config", filename),
+                params=params,
+                vars_dict=func_vars_dict,
+                reads=reads,
+                writes=writes,
+            )
+            self.functions.append(func)
+            self._function_nodes.append((None, func))
+            self.config_function_names.add(func_name)
 

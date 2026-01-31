@@ -1,0 +1,22 @@
+[
+  {
+    "function_name": "teststr",
+    "interface_semantics": {
+      "parameters": [
+        {
+          "name": "str1",
+          "type": "const char *"
+        }
+      ],
+      "state": [],
+      "input": [],
+      "output": [
+        {
+          "name": "str2",
+          "type": "char[100]"
+        }
+      ],
+      "inout": []
+    }
+  }
+]

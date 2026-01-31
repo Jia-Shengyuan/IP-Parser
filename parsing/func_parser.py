@@ -277,6 +277,20 @@ class FuncParser:
 			root_func.writes.add(name)
 			written[name] = True
 
+		def mark_pointer_read(addr: int) -> None:
+			block = self._mem.get_block(addr)
+			if block is None or block.var is None:
+				return
+			block.var.mark_read(root_func.name)
+			root_func.reads.add(block.var.name)
+
+		def mark_pointer_write(addr: int) -> None:
+			block = self._mem.get_block(addr)
+			if block is None or block.var is None:
+				return
+			block.var.mark_write(root_func.name)
+			root_func.writes.add(block.var.name)
+
 		def get_addr_for_name(name: str) -> Optional[int]:
 			addr = self._mem.get_address(name)
 			if addr is None:
@@ -451,6 +465,9 @@ class FuncParser:
 				return pointer_map.get(ptr_key)
 			if expr.kind == CursorKind.DECL_REF_EXPR:
 				name = expr.spelling
+				mapped = pointer_map.get(name)
+				if mapped is not None:
+					return mapped
 				return get_addr_for_name(name) if name else None
 			return None
 
@@ -636,12 +653,17 @@ class FuncParser:
 							if var_name.endswith("__pointee"):
 								param_name = var_name[len(prefix):].removesuffix("__pointee")
 								target_addr = param_targets.get(param_name)
+								arg_name = param_arg_names.get(param_name)
 								if target_addr is not None:
 									mark_non_state_by_addr(target_addr)
-									arg_name = param_arg_names.get(param_name)
 									if arg_name:
 										add_non_state_name(arg_name)
 									mark_read(target_addr)
+								elif arg_name:
+									add_non_state_name(arg_name)
+									arg_addr = get_addr_for_name(arg_name)
+									if arg_addr is not None:
+										mark_pointer_read(arg_addr)
 								continue
 							# Handle pointer-param array elements allocated as params.
 							local_name = var_name[len(prefix):]
@@ -682,12 +704,17 @@ class FuncParser:
 							if var_name.endswith("__pointee"):
 								param_name = var_name[len(prefix):].removesuffix("__pointee")
 								target_addr = param_targets.get(param_name)
+								arg_name = param_arg_names.get(param_name)
 								if target_addr is not None:
 									mark_non_state_by_addr(target_addr)
-									arg_name = param_arg_names.get(param_name)
 									if arg_name:
 										add_non_state_name(arg_name)
 									mark_write(target_addr)
+								elif arg_name:
+									add_non_state_name(arg_name)
+									arg_addr = get_addr_for_name(arg_name)
+									if arg_addr is not None:
+										mark_pointer_write(arg_addr)
 								continue
 							# Handle pointer-param array elements allocated as params.
 							local_name = var_name[len(prefix):]

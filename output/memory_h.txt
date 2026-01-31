@@ -3321,3 +3321,9 @@ Memory Blocks:
   M: Addr 1107: ptr (type unint32 *, parent=0, size=1)
      R: -
      W: -
+  M: Addr 1108: <h>v (type int *, parent=0, size=1)
+     R: -
+     W: -
+  M: Addr 1109: <h>v__pointee (type int, parent=0, size=1)
+     R: -
+     W: -

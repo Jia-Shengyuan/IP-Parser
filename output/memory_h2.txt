@@ -3321,3 +3321,12 @@ Memory Blocks:
   M: Addr 1107: ptr (type unint32 *, parent=0, size=1)
      R: -
      W: -
+  M: Addr 1108: <h2>p (type S *, parent=0, size=1)
+     R: -
+     W: h2
+  M: Addr 1109: <h2>p__pointee (type struct S_struct, parent=0, size=2)
+     R: -
+     W: h2
+  M: Addr 1110: <h2>p__pointee.b (type unsigned int, parent=1109, size=1)
+     R: -
+     W: h2

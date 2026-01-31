@@ -1,0 +1,30 @@
+[
+  {
+    "function_name": "strlen",
+    "arguments": [
+        {
+            "name": "s",
+            "type": "const char *",
+            "read": true,
+            "write": false
+        }
+    ]
+  }, 
+  {
+    "function_name": "strcpy",
+    "arguments": [
+        {
+            "name": "dest",
+            "type": "char *",
+            "read": false,
+            "write": true
+        },
+        {
+            "name": "src",
+            "type": "const char *",
+            "read": true,
+            "write": false
+        }
+    ]
+  }
+]
