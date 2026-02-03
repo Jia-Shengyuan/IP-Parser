@@ -11,6 +11,34 @@
       "state": [],
       "input": [
         {
+          "name": "past->tmA",
+          "type": "double"
+        },
+        {
+          "name": "past->Chim",
+          "type": "double"
+        },
+        {
+          "name": "past->Chim0",
+          "type": "double"
+        },
+        {
+          "name": "past->amax",
+          "type": "double"
+        },
+        {
+          "name": "past->tm1p",
+          "type": "double"
+        },
+        {
+          "name": "past->tm2p",
+          "type": "double"
+        },
+        {
+          "name": "past->tm3p",
+          "type": "double"
+        },
+        {
           "name": "dtv",
           "type": "float64"
         },
@@ -19,11 +47,28 @@
           "type": "float64"
         }
       ],
-      "output": [],
+      "output": [
+        {
+          "name": "past->acc_Ref",
+          "type": "double"
+        },
+        {
+          "name": "past->dChi_Ref",
+          "type": "double"
+        },
+        {
+          "name": "past->Chi_Ref",
+          "type": "double"
+        }
+      ],
       "inout": [
         {
           "name": "past",
           "type": "SMnvrData *"
+        },
+        {
+          "name": "past->F_Init_Trajectory",
+          "type": "unsigned int"
         }
       ]
     }
@@ -33,8 +78,38 @@
     "interface_semantics": {
       "parameters": [],
       "state": [],
-      "input": [],
-      "output": [],
+      "input": [
+        {
+          "name": "past->dChimax",
+          "type": "double"
+        },
+        {
+          "name": "past->Chim",
+          "type": "double"
+        },
+        {
+          "name": "past->Chim0",
+          "type": "double"
+        },
+        {
+          "name": "past->amax",
+          "type": "double"
+        }
+      ],
+      "output": [
+        {
+          "name": "past->tm1p",
+          "type": "double"
+        },
+        {
+          "name": "past->tm2p",
+          "type": "double"
+        },
+        {
+          "name": "past->tm3p",
+          "type": "double"
+        }
+      ],
       "inout": [
         {
           "name": "past",

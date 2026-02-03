@@ -5,7 +5,16 @@
       "parameters": [],
       "state": [],
       "input": [],
-      "output": [],
+      "output": [
+        {
+          "name": "a",
+          "type": "unint32[3]"
+        },
+        {
+          "name": "a[2]",
+          "type": "unsigned int"
+        }
+      ],
       "inout": []
     }
   }

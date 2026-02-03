@@ -116,9 +116,7 @@ class MemoryManager:
 			if pointer_addr is not None:
 				self._mark_read(pointer_addr, func)
 
-		size = StructsManager.instance().get_size(block.var.raw_type)
-		for i in range(size):
-			self._mark_read(addr + i, func)
+		self._mark_read(addr, func)
 
 	# what: should be called when a function writes to a variable in the abstract memory
 	def write_memory(self, addr: int, func: str):
@@ -130,9 +128,7 @@ class MemoryManager:
 			if pointer_addr is not None:
 				self._mark_write(pointer_addr, func)
 
-		size = StructsManager.instance().get_size(block.var.raw_type)
-		for i in range(size):
-			self._mark_write(addr + i, func)
+		self._mark_write(addr, func)
 
 	def analyze_memories(self):
 		
@@ -187,7 +183,15 @@ class MemoryManager:
 				dummy_type = base_type
 				if var.is_pointer_array and var.pointer_array_len > 0:
 					dummy_type = f"{base_type}[{var.pointer_array_len}]"
-				dummy_addr = self._allocate(dummy_name, dummy_type, parent=0, structs_manager=structs_manager)
+				dummy_var = Variable(
+					name=dummy_name,
+					raw_type=dummy_type,
+					kind=structs_manager.get_type_kind(dummy_type),
+					domain=var.domain,
+					is_pointer=False,
+					points_to={},
+				)
+				dummy_addr = self._allocate(dummy_name, dummy_type, parent=0, structs_manager=structs_manager, variable=dummy_var)
 				pointer_defaults[var.name] = dummy_addr
 				self.add_pointer_ref(dummy_addr, var.name)
 		return pointer_defaults
@@ -223,7 +227,15 @@ class MemoryManager:
 				dummy_type = base_type
 				if var.is_pointer_array and var.pointer_array_len > 0:
 					dummy_type = f"{base_type}[{var.pointer_array_len}]"
-				dummy_addr = self._allocate(dummy_name, dummy_type, parent=0, structs_manager=structs_manager)
+				dummy_var = Variable(
+					name=dummy_name,
+					raw_type=dummy_type,
+					kind=structs_manager.get_type_kind(dummy_type),
+					domain=var.domain,
+					is_pointer=False,
+					points_to={},
+				)
+				dummy_addr = self._allocate(dummy_name, dummy_type, parent=0, structs_manager=structs_manager, variable=dummy_var)
 				pointer_defaults[var.name] = dummy_addr
 				self.add_pointer_ref(dummy_addr, var.name)
 		return pointer_defaults

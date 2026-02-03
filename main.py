@@ -14,6 +14,7 @@ def _to_brief(var) -> BriefVariable:
 		return None
 	if name.startswith("<") and ">" in name:
 		name = name.split(">", 1)[1]
+	name = name.replace("__pointee.", "->")
 	return BriefVariable(name=name, type=getattr(var, "original_raw_type", var.raw_type))
 
 
@@ -31,11 +32,21 @@ def _summarize_function(parser: Parser, target_name: str) -> FunctionSummarize:
 	summary = FunctionSummarize(function_name=target_name)
 
 	for block in mem._blocks:
-		if block is None or block.parent != 0:
+		if block is None:
 			continue
 		var = block.var
 		if var is None:
 			continue
+
+		root_addr = block.addr
+		root_block = block
+		while root_block.parent != 0:
+			root_addr = root_block.parent
+			root_block = mem._blocks[root_addr]
+			if root_block is None:
+				break
+		root_var = root_block.var if root_block is not None else None
+		root_is_global = root_var is not None and root_var.domain == root_var.domain.GLOBAL
 
 		r_target = target_name in var.read
 		w_target = target_name in var.write
@@ -44,13 +55,13 @@ def _summarize_function(parser: Parser, target_name: str) -> FunctionSummarize:
 		if not (r_target or w_target):
 			continue
 
-		if r_target and not w_target and var.domain == var.domain.GLOBAL:
+		if r_target and not w_target and root_is_global:
 			brief = _to_brief(var)
 			if brief:
 				summary.interface_semantics.parameters.append(brief)
 		elif (
 			r_target and w_target
-			and var.domain == var.domain.GLOBAL
+			and root_is_global
 			and var.read.issubset({target_name})
 			and var.write.issubset({target_name})
 			and var.name not in target_func.non_state

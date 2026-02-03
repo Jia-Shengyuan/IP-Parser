@@ -1,0 +1,47 @@
+[
+  {
+    "function_name": "AccSinTrackInit",
+    "interface_semantics": {
+      "parameters": [],
+      "state": [],
+      "input": [
+        {
+          "name": "past->dChimax",
+          "type": "double"
+        },
+        {
+          "name": "past->Chim",
+          "type": "double"
+        },
+        {
+          "name": "past->Chim0",
+          "type": "double"
+        },
+        {
+          "name": "past->amax",
+          "type": "double"
+        }
+      ],
+      "output": [
+        {
+          "name": "past->tm1p",
+          "type": "double"
+        },
+        {
+          "name": "past->tm2p",
+          "type": "double"
+        },
+        {
+          "name": "past->tm3p",
+          "type": "double"
+        }
+      ],
+      "inout": [
+        {
+          "name": "past",
+          "type": "SMnvrData *"
+        }
+      ]
+    }
+  }
+]
