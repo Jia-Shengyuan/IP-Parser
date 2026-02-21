@@ -797,8 +797,9 @@ class FuncParser:
 							update_pointer_mapping(lhs_key, target_addr)
 							handle_expr(rhs)
 							return
-						handle_lvalue(lhs, is_compound=False)
+						# For normal assignment, evaluate RHS first so reads like a=a+1 are preserved.
 						handle_expr(rhs)
+						handle_lvalue(lhs, is_compound=False)
 						return
 					if op in ("+=", "-=", "*=", "/=", "%=", "<<=", ">>=", "&=", "|=", "^="):
 						handle_lvalue(lhs, is_compound=True)
