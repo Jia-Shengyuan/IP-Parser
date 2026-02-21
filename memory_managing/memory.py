@@ -259,6 +259,12 @@ class MemoryManager:
 			block.var.raw_type = f"{base_type}[{length}]"
 			block.var.kind = VARIABLE_KIND.ARRAY
 			block.var.is_pointer = False
+			unknown_name = f"{dummy_name}[?]"
+			if unknown_name in self._map:
+				block.var.points_to.setdefault("?", self._map[unknown_name])
+			else:
+				block.var.points_to["?"] = self._next_addr
+				self._allocate(unknown_name, base_type, parent=addr, structs_manager=StructsManager.instance())
 			for i in range(length):
 				key = str(i)
 				name = f"{dummy_name}[{i}]"
@@ -280,6 +286,12 @@ class MemoryManager:
 		block.var.raw_type = f"{base_type}[{length}]"
 		block.var.kind = VARIABLE_KIND.ARRAY
 		block.var.is_pointer = False
+		unknown_name = f"{var_name}[?]"
+		if unknown_name in self._map:
+			block.var.points_to.setdefault("?", self._map[unknown_name])
+		else:
+			block.var.points_to["?"] = self._next_addr
+			self._allocate(unknown_name, base_type, parent=addr, structs_manager=StructsManager.instance())
 		for i in range(length):
 			key = str(i)
 			name = f"{var_name}[{i}]"
@@ -328,6 +340,8 @@ class MemoryManager:
 		# case: array type
 		if structs_manager.is_array(type_name):
 			base_type, length = structs_manager.parse_array_type(type_name)
+			variable.points_to["?"] = self._next_addr
+			self._allocate(f"{var_name}[?]", base_type, parent=addr, structs_manager=structs_manager)
 			for i in range(length):
 				variable.points_to[str(i)] = self._next_addr
 				self._allocate(f"{var_name}[{i}]", base_type, parent=addr, structs_manager=structs_manager)

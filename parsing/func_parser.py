@@ -387,7 +387,7 @@ class FuncParser:
 							return block.var.name, True
 				index_val = get_integer_literal(children[1])
 				if index_val is None:
-					return base_name, True
+					return f"{base_name}[?]", True
 				return f"{base_name}[{index_val}]", False
 			return None, False
 
@@ -508,20 +508,24 @@ class FuncParser:
 		# Walk expression nodes and apply read/write rules.
 		def handle_expr(cursor) -> None:
 			if cursor.kind == CursorKind.VAR_DECL:
+				children = list(cursor.get_children())
 				# Track local pointer declarations and initializers.
 				var_name = cursor.spelling
 				if var_name and cursor.type.kind == TypeKind.POINTER:
 					local_key = f"{func_prefix}{var_name}"
 					pointer_map[local_key] = None
-					init_child = next(cursor.get_children(), None)
+					init_child = None
+					for child in children:
+						if child.kind != CursorKind.TYPE_REF:
+							init_child = child
+							break
 					if init_child is not None:
 						target_addr = resolve_pointer_target(init_child)
 						update_pointer_mapping(local_key, target_addr)
 						handle_expr(init_child)
 					return
-				init_child = next(cursor.get_children(), None)
-				if init_child is not None:
-					handle_expr(init_child)
+				for child in children:
+					handle_expr(child)
 				return
 			
 			if cursor.kind == CursorKind.CALL_EXPR:

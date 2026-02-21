@@ -8,6 +8,21 @@ unint32 *ptr = &a[0];
 const char* str1 = "hello world";
 char str2[100];
 
+typedef struct {
+    int x;
+    int y;
+} Point;
+
+Point points[3];
+
+void test_array(int index) {
+    unint32 x = a[index];
+}
+
+void test_struct_array(int index) {
+    points[index].x = index;
+}
+
 int my_strlen(const char* s) {
     int len = *s;
     return len;
