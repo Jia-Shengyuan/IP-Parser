@@ -15,7 +15,15 @@ def _to_brief(var) -> BriefVariable:
 	if name.startswith("<") and ">" in name:
 		name = name.split(">", 1)[1]
 	name = name.replace("__pointee.", "->")
-	return BriefVariable(name=name, type=getattr(var, "original_raw_type", var.raw_type))
+	# determine output type, normalizing absolute-address casts
+	type_str = getattr(var, "original_raw_type", var.raw_type)
+	if "0x" in name:
+		# strip qualifiers
+		type_str = type_str.replace("volatile", "").replace("const", "").strip()
+		# ensure pointer suffix
+		if not type_str.endswith("*"):
+			type_str = type_str + "*"
+	return BriefVariable(name=name, type=type_str)
 
 
 def _summarize_function(parser: Parser, target_name: str) -> FunctionSummarize:

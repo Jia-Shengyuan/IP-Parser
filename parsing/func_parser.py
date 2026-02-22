@@ -167,8 +167,51 @@ class FuncParser:
 			return tokens[0]
 		return None
 
+	# Try to interpret *cursor* as a constant absolute-address access.
+	# Returns tuple (name, raw_type, addr) or None.
+	def _parse_absolute_address(self, cursor) -> tuple[str, str, int] | None:
+		if cursor is None:
+			return None
+		# if this cursor is itself a c-style cast, check before unwrapping
+		if cursor.kind == CursorKind.CSTYLE_CAST_EXPR:
+			tokens = [t.spelling for t in cursor.get_tokens()]
+			# look for hex constant token and at least one '*' indicating pointer
+			has_hex = any(tok.startswith("0x") for tok in tokens)
+			has_star = "*" in tokens
+			if has_hex and has_star:
+				# build a human-readable name for the absolute address cast
+				# tokens example: ['(', 'volatile', 'uint32_t', '*', ')', '0x01f80088']
+				name = ""
+				for tok in tokens:
+					if tok in ("(", ")", "*"):
+						name += tok
+					elif tok.startswith("0x"):
+						name += tok
+					else:
+						# separate words with spaces
+						if name and (name[-1].isalnum() or name[-1] == "*"):
+							name += " "
+						name += tok
+				raw_type = cursor.type.spelling
+				addr = self._mem.get_or_create_absolute(name, raw_type)
+
+				return name, raw_type, addr
+		# unwrap trivial wrappers to reach cast
+		if cursor.kind in FuncParser.UNWRAP_KINDS:
+			return self._parse_absolute_address(next(cursor.get_children(), None))
+		return None
+
 	# Resolve a variable access expression to a fully-qualified name.
 	def _resolve_var_access_expr(self, cursor) -> Optional[str]:
+		if cursor is None:
+			return None
+		# absolute address has priority
+		abs_info = self._parse_absolute_address(cursor)
+		if abs_info is not None:
+			return abs_info[0]
+		if cursor.kind in self.UNWRAP_KINDS:
+			child = next(cursor.get_children(), None)
+			return self._resolve_var_access_expr(child)
 		if cursor is None:
 			return None
 		if cursor.kind in self.UNWRAP_KINDS:
@@ -493,7 +536,15 @@ class FuncParser:
 						if is_compound:
 							mark_read(target_addr)
 						mark_write(target_addr)
-				return
+					return
+				# constant address expression
+				abs_info = self._parse_absolute_address(child)
+				if abs_info is not None:
+					_, _, addr = abs_info
+					if is_compound:
+						mark_read(addr)
+					mark_write(addr)
+					return
 			name, nonconst = resolve_var_access(cursor)
 			if name is None:
 				return
@@ -768,25 +819,20 @@ class FuncParser:
 				if child is None:
 					return
 				if op == "*":
+					# pointer dereference or absolute-address access
 					ptr_name = resolve_pointer_name(child)
 					ptr_key = resolve_pointer_key(ptr_name)
 					if ptr_key:
 						target_addr = pointer_map.get(ptr_key)
 						if target_addr is not None:
 							mark_read(target_addr)
-					return
-				if op == "&":
-					if child.kind == CursorKind.ARRAY_SUBSCRIPT_EXPR:
-						children = list(child.get_children())
-						if len(children) >= 2:
-							handle_expr(children[1])
-					return
-				if op in ("++", "--"):
-					handle_lvalue(child, is_compound=True)
-					return
-				handle_expr(child)
-				return
-
+						return
+					# try constant address
+					abs_info = self._parse_absolute_address(child)
+					if abs_info is not None:
+						_, _, addr = abs_info
+						mark_read(addr)
+						return
 			if cursor.kind in (CursorKind.BINARY_OPERATOR, CursorKind.COMPOUND_ASSIGNMENT_OPERATOR):
 				op = get_operator(cursor)
 				children = list(cursor.get_children())

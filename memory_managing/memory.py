@@ -308,6 +308,32 @@ class MemoryManager:
 			if b.var.name == dummy_name or b.var.name.startswith(f"{dummy_name}[") or b.var.name.startswith(f"{dummy_name}."):
 				b.var.hidden = True
 
+	def get_or_create_absolute(self, var_name: str, type_name: str) -> int:
+		"""Return address for a pseudo-global representing a fixed memory location.
+		
+		If *var_name* already exists in the abstract memory map, its address is
+		returned.  Otherwise a new global variable is created with the given
+		type name and allocated; the variable is deliberately marked as a
+		non-pointer builtin so that reads and writes to it will be recorded by the
+		analysis logic.  This is used when the parser encounters expressions such
+		as ``*(volatile uint32_t*)0x01F80088`` which have no declaration in the
+		source code.
+		"""
+		addr = self.get_address(var_name)
+		if addr is not None:
+			return addr
+		structs_manager = StructsManager.instance()
+		var = Variable(
+			name=var_name,
+			raw_type=type_name,
+			kind=VARIABLE_KIND.BUILTIN,
+			domain=VARIABLE_DOMAIN.GLOBAL,
+			is_pointer=False,
+		)
+		addr = self._allocate(var_name, type_name, parent=0, structs_manager=structs_manager, variable=var)
+		var.address = addr
+		return addr
+
 	def _allocate(self, var_name: str, type_name: str, parent: int, structs_manager: StructsManager, variable: Variable | None = None) -> int:
 		
 		"""
