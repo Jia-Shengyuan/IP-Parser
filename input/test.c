@@ -21,6 +21,7 @@ void test_array(int index) {
 
 void test_struct_array(int index) {
     points[index].x = index;
+    int y = points[0].y;
 }
 
 int my_strlen(const char* s) {

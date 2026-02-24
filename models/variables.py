@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Dict, List
+from typing import Dict, List, Union
 
 class VARIABLE_DOMAIN(Enum):
     GLOBAL = "Global"
@@ -23,7 +23,7 @@ class Variable:
         domain: VARIABLE_DOMAIN,
         is_pointer: bool,
         address: int = 0,
-        points_to: Dict[str, int] | None = None,
+        points_to: Dict[Union[str, int], int] | None = None,
         is_pointer_array: bool = False,
         pointer_array_len: int = 0,
         hidden: bool = False,
@@ -34,7 +34,7 @@ class Variable:
         self.kind = kind         # Type kind, such as `Pointer`, `Record`, `Array`, `Builtin` etc.
         self.domain = domain
         self.is_pointer = is_pointer
-        self.points_to = points_to or {} #pt: sub-variable name -> virtual memory location
+        self.points_to = points_to or {} # pt: member/index -> virtual memory location
         self.address = address
 
         self.is_pointer_array = is_pointer_array

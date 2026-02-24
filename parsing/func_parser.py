@@ -108,11 +108,11 @@ class FuncParser:
 			param_var = param_map.get(base_name)
 			if not param_var:
 				return
+			param_var.is_pointer_array = True
 			index_val = self._get_integer_literal_expr(index_cursor)
 			if index_val is None:
 				return
 			idx = int(index_val)
-			param_var.is_pointer_array = True
 			param_var.pointer_array_len = max(param_var.pointer_array_len, idx + 1)
 
 		def handle_call(cursor) -> None:
@@ -130,7 +130,7 @@ class FuncParser:
 					break
 				param_key = f"<{callee_func.name}>{param_name}"
 				param_var = callee_func.vars_dict.get(param_key) if callee_func.vars_dict else None
-				if param_var is None or not param_var.is_pointer or param_var.pointer_array_len <= 0:
+				if param_var is None or not param_var.is_pointer_array:
 					continue
 				arg_name = resolve_decl_name(arg_nodes[i])
 				caller_var = param_map.get(arg_name)
@@ -209,7 +209,7 @@ class FuncParser:
 			if "&" in tokens:
 				child = next(expr.get_children(), None)
 				name = self._resolve_var_access_expr(child)
-				return self._mem.get_address(name) if name else None
+				return self._mem.ensure_address(name) if name else None
 		if expr.kind == CursorKind.DECL_REF_EXPR:
 			pointer_name = expr.spelling
 			return self._pointer_map.get(pointer_name)
@@ -292,10 +292,10 @@ class FuncParser:
 			root_func.writes.add(block.var.name)
 
 		def get_addr_for_name(name: str) -> Optional[int]:
-			addr = self._mem.get_address(name)
+			addr = self._mem.ensure_address(name)
 			if addr is None:
 				prefixed = f"{func_prefix}{name}"
-				addr = self._mem.get_address(prefixed)
+				addr = self._mem.ensure_address(prefixed)
 			return addr
 
 		def add_non_state_name(var_name: Optional[str]) -> None:
@@ -314,10 +314,10 @@ class FuncParser:
 		def handle_access(name: str, nonconst_index: bool, read: bool, write: bool, read_before_write: bool = False) -> None:
 			if not name:
 				return
-			base_addr = self._mem.get_address(name)
+			base_addr = self._mem.ensure_address(name)
 			if base_addr is None:
 				prefixed = f"{func_prefix}{name}"
-				base_addr = self._mem.get_address(prefixed)
+				base_addr = self._mem.ensure_address(prefixed)
 			if base_addr is None:
 				return
 
@@ -615,14 +615,14 @@ class FuncParser:
 
 					# Merge cached callee results into root_func.
 					def merge_global_read(var_name: str) -> None:
-						addr = self._mem.get_address(var_name)
+						addr = self._mem.ensure_address(var_name)
 						if addr is None:
 							return
 						add_non_state_name(var_name)
 						mark_read(addr)
 
 					def merge_global_write(var_name: str) -> None:
-						addr = self._mem.get_address(var_name)
+						addr = self._mem.ensure_address(var_name)
 						if addr is None:
 							return
 						add_non_state_name(var_name)

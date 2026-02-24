@@ -3,7 +3,7 @@ This module handles the allocation for abstract memory location.
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Iterable, Tuple, Any, Dict, Set
+from typing import List, Optional, Iterable, Dict, Set
 from models import *
 
 @dataclass
@@ -27,6 +27,7 @@ class MemoryManager:
 	"""
 
 	_instance: Optional["MemoryManager"] = None
+	ARRAY_UNKNOWN_INDEX = -1
 
 	def __new__(cls) -> "MemoryManager":
 		if cls._instance is None:
@@ -53,6 +54,87 @@ class MemoryManager:
 		Returns None if not an global variable.
 		"""
 		return self._map.get(var_name, None)
+
+	def _array_index_to_text(self, index: int) -> str:
+		return "?" if index == self.ARRAY_UNKNOWN_INDEX else str(index)
+
+	def _ensure_array_child(self, parent_addr: int, parent_name: str, index: int) -> Optional[int]:
+		parent_block = self.get_block(parent_addr)
+		if parent_block is None or parent_block.var is None:
+			return None
+		parent_var = parent_block.var
+		if parent_var.kind != VARIABLE_KIND.ARRAY:
+			return None
+		key = index
+		child_addr = parent_var.points_to.get(key)
+		if child_addr is not None:
+			return child_addr
+		structs_manager = StructsManager.instance()
+		base_type, _ = structs_manager.parse_array_type(parent_var.raw_type)
+		child_name = f"{parent_name}[{self._array_index_to_text(index)}]"
+		existing_addr = self._map.get(child_name)
+		if existing_addr is not None:
+			parent_var.points_to[key] = existing_addr
+			return existing_addr
+		parent_var.points_to[key] = self._next_addr
+		self._allocate(child_name, base_type, parent=parent_addr, structs_manager=structs_manager)
+		return parent_var.points_to.get(key)
+
+	def ensure_address(self, var_name: str) -> Optional[int]:
+		if not var_name:
+			return None
+		addr = self._map.get(var_name)
+		if addr is not None:
+			return addr
+		n = len(var_name)
+		i = 0
+		while i < n and var_name[i] not in ".[" and not (var_name[i] == "-" and i + 1 < n and var_name[i + 1] == ">"):
+			i += 1
+		if i == 0:
+			return None
+		root_name = var_name[:i]
+		current_addr = self._map.get(root_name)
+		if current_addr is None:
+			return None
+		while i < n:
+			current_block = self.get_block(current_addr)
+			if current_block is None or current_block.var is None:
+				return None
+			current_var = current_block.var
+			if var_name[i] == "." or (var_name[i] == "-" and i + 1 < n and var_name[i + 1] == ">"):
+				i += 2 if (var_name[i] == "-" and i + 1 < n and var_name[i + 1] == ">") else 1
+				start = i
+				while i < n and var_name[i] not in ".[" and not (var_name[i] == "-" and i + 1 < n and var_name[i + 1] == ">"):
+					i += 1
+				if i == start:
+					return None
+				member_name = var_name[start:i]
+				child_addr = current_var.points_to.get(member_name)
+				if child_addr is None:
+					return None
+				current_addr = child_addr
+				continue
+			if var_name[i] == "[":
+				j = var_name.find("]", i)
+				if j < 0:
+					return None
+				index_text = var_name[i + 1:j].strip()
+				if index_text == "?":
+					index_val = self.ARRAY_UNKNOWN_INDEX
+				elif index_text.isdigit():
+					index_val = int(index_text)
+				else:
+					return None
+				child_addr = current_var.points_to.get(index_val)
+				if child_addr is None:
+					child_addr = self._ensure_array_child(current_addr, current_var.name, index_val)
+				if child_addr is None:
+					return None
+				current_addr = child_addr
+				i = j + 1
+				continue
+			return None
+		return current_addr
 
 	def get_block(self, addr: int) -> Optional[MemoryBlock]:
 		if addr <= 0 or addr >= len(self._blocks):
@@ -181,8 +263,9 @@ class MemoryManager:
 					base_type = "void"
 				dummy_name = f"{var.name}__pointee"
 				dummy_type = base_type
-				if var.is_pointer_array and var.pointer_array_len > 0:
-					dummy_type = f"{base_type}[{var.pointer_array_len}]"
+				if var.is_pointer_array:
+					array_len = max(var.pointer_array_len, 1)
+					dummy_type = f"{base_type}[{array_len}]"
 				dummy_var = Variable(
 					name=dummy_name,
 					raw_type=dummy_type,
@@ -207,11 +290,12 @@ class MemoryManager:
 		for var in variables:
 			if var.address:
 				continue
-			if var.is_pointer and var.is_pointer_array and var.pointer_array_len > 0:
+			if var.is_pointer and var.is_pointer_array:
 				base_type = structs_manager.get_decoded_name(var.raw_type).rstrip()
 				if base_type.endswith("*"):
 					base_type = base_type[:-1].strip()
-				array_type = f"{base_type}[{var.pointer_array_len}]"
+				array_len = max(var.pointer_array_len, 1)
+				array_type = f"{base_type}[{array_len}]"
 				var.raw_type = array_type
 				var.kind = VARIABLE_KIND.ARRAY
 				var.is_pointer = False
@@ -225,8 +309,9 @@ class MemoryManager:
 					base_type = "void"
 				dummy_name = f"{var.name}__pointee"
 				dummy_type = base_type
-				if var.is_pointer_array and var.pointer_array_len > 0:
-					dummy_type = f"{base_type}[{var.pointer_array_len}]"
+				if var.is_pointer_array:
+					array_len = max(var.pointer_array_len, 1)
+					dummy_type = f"{base_type}[{array_len}]"
 				dummy_var = Variable(
 					name=dummy_name,
 					raw_type=dummy_type,
@@ -259,20 +344,9 @@ class MemoryManager:
 			block.var.raw_type = f"{base_type}[{length}]"
 			block.var.kind = VARIABLE_KIND.ARRAY
 			block.var.is_pointer = False
-			unknown_name = f"{dummy_name}[?]"
-			if unknown_name in self._map:
-				block.var.points_to.setdefault("?", self._map[unknown_name])
-			else:
-				block.var.points_to["?"] = self._next_addr
-				self._allocate(unknown_name, base_type, parent=addr, structs_manager=StructsManager.instance())
+			self._ensure_array_child(addr, dummy_name, self.ARRAY_UNKNOWN_INDEX)
 			for i in range(length):
-				key = str(i)
-				name = f"{dummy_name}[{i}]"
-				if name in self._map:
-					block.var.points_to.setdefault(key, self._map[name])
-					continue
-				block.var.points_to[key] = self._next_addr
-				self._allocate(name, base_type, parent=addr, structs_manager=StructsManager.instance())
+				self._ensure_array_child(addr, dummy_name, i)
 
 	def convert_pointer_param_to_array(self, var_name: str, base_type: str, length: int) -> None:
 		if length <= 0:
@@ -286,20 +360,9 @@ class MemoryManager:
 		block.var.raw_type = f"{base_type}[{length}]"
 		block.var.kind = VARIABLE_KIND.ARRAY
 		block.var.is_pointer = False
-		unknown_name = f"{var_name}[?]"
-		if unknown_name in self._map:
-			block.var.points_to.setdefault("?", self._map[unknown_name])
-		else:
-			block.var.points_to["?"] = self._next_addr
-			self._allocate(unknown_name, base_type, parent=addr, structs_manager=StructsManager.instance())
+		self._ensure_array_child(addr, var_name, self.ARRAY_UNKNOWN_INDEX)
 		for i in range(length):
-			key = str(i)
-			name = f"{var_name}[{i}]"
-			if name in self._map:
-				block.var.points_to.setdefault(key, self._map[name])
-				continue
-			block.var.points_to[key] = self._next_addr
-			self._allocate(name, base_type, parent=addr, structs_manager=StructsManager.instance())
+			self._ensure_array_child(addr, var_name, i)
 
 		dummy_name = f"{var_name}__pointee"
 		for b in self._blocks:
@@ -339,12 +402,7 @@ class MemoryManager:
 
 		# case: array type
 		if structs_manager.is_array(type_name):
-			base_type, length = structs_manager.parse_array_type(type_name)
-			variable.points_to["?"] = self._next_addr
-			self._allocate(f"{var_name}[?]", base_type, parent=addr, structs_manager=structs_manager)
-			for i in range(length):
-				variable.points_to[str(i)] = self._next_addr
-				self._allocate(f"{var_name}[{i}]", base_type, parent=addr, structs_manager=structs_manager)
+			self._ensure_array_child(addr, var_name, self.ARRAY_UNKNOWN_INDEX)
 			return addr
 		
 		# case: struct type
