@@ -68,13 +68,9 @@ class Parser:
             for func_name in order:
                 if func_name in func_map:
                     func_node, func = func_map[func_name]
-                    if func_node is None:
-                        continue
                     func_parser.parse_function(func_node, func)
         else:
             for func_node, func in self._function_nodes:
-                if func_node is None:
-                    continue
                 func_parser.parse_function(func_node, func)
 
         func_parser.finalize()
@@ -296,6 +292,10 @@ class Parser:
         return items
 
     def _parse_function_config_file(self, filename: str, data: list) -> None:
+        def pointer_level(type_name: str) -> int:
+            t = self.structs.get_decoded_name(type_name).strip()
+            return t.count("*")
+
         for item in data:
             if not isinstance(item, dict):
                 continue
@@ -306,6 +306,7 @@ class Parser:
             if any(f.name == func_name for f in self.functions):
                 continue
             var_cfgs: List[VariableConfig] = []
+            arg_type_map: Dict[str, str] = {}
             for arg in args:
                 if not isinstance(arg, dict):
                     continue
@@ -313,6 +314,7 @@ class Parser:
                 type_str = arg.get("type")
                 if not name or not type_str:
                     continue
+                arg_type_map[name] = type_str
                 var_cfgs.append(VariableConfig(
                     name=name,
                     type=type_str,
@@ -325,6 +327,7 @@ class Parser:
             func_vars_dict: Dict[str, Variable] = {}
             reads = set()
             writes = set()
+            ptr_init_names: List[tuple[str, str]] = []
             for vc in func_cfg.arguments:
                 raw_type = vc.type
                 kind = VARIABLE_KIND.BUILTIN
@@ -349,6 +352,30 @@ class Parser:
                         reads.add(f"<{func_name}>{vc.name}__pointee")
                     if vc.write:
                         writes.add(f"<{func_name}>{vc.name}__pointee")
+
+            ptr_init_items = item.get("ptr_init", [])
+            if isinstance(ptr_init_items, list):
+                for pi in ptr_init_items:
+                    if not isinstance(pi, dict):
+                        continue
+                    src_name = pi.get("name")
+                    tgt_name = pi.get("target")
+                    if not src_name:
+                        continue
+                    src_prefixed = f"<{func_name}>{src_name}"
+                    src_type = arg_type_map.get(src_name, "")
+                    src_level = pointer_level(src_type) if src_type else 0
+                    if src_level >= 2:
+                        src_prefixed = f"{src_prefixed}__pointee"
+
+                    tgt_prefixed = ""
+                    if tgt_name:
+                        tgt_prefixed = f"<{func_name}>{tgt_name}"
+                        tgt_type = arg_type_map.get(tgt_name, "")
+                        tgt_level = pointer_level(tgt_type) if tgt_type else 0
+                        if tgt_level >= 1:
+                            tgt_prefixed = f"{tgt_prefixed}__pointee"
+                    ptr_init_names.append((src_prefixed, tgt_prefixed))
             func = Function(
                 name=func_name,
                 source_file=os.path.join("config", filename),
@@ -356,6 +383,7 @@ class Parser:
                 vars_dict=func_vars_dict,
                 reads=reads,
                 writes=writes,
+                config_ptr_init_names=ptr_init_names,
             )
             self.functions.append(func)
             self._function_nodes.append((None, func))

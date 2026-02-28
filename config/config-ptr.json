@@ -1,0 +1,26 @@
+[
+    {
+        "function_name": "test_ptr_config",
+        "arguments": [
+            {
+                "name": "a",
+                "type": "int **",
+                "read": false,
+                "write": false
+            },
+            {
+                "name": "b",
+                "type": "int *",
+                "read": false,
+                "write": false
+            }
+        ],
+        "ptr_init": [
+            {
+                "name" : "a",
+                "target": "b"
+            }
+        ]
+
+    }
+]

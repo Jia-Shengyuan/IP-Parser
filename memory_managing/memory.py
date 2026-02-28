@@ -275,12 +275,13 @@ class MemoryManager:
 				if var.is_pointer_array:
 					array_len = max(var.pointer_array_len, 1)
 					dummy_type = f"{base_type}[{array_len}]"
+				dummy_is_pointer = structs_manager.is_pointer(dummy_type)
 				dummy_var = Variable(
 					name=dummy_name,
 					raw_type=dummy_type,
 					kind=structs_manager.get_type_kind(dummy_type),
 					domain=var.domain,
-					is_pointer=False,
+					is_pointer=dummy_is_pointer,
 					points_to={},
 				)
 				dummy_addr = self._allocate(dummy_name, dummy_type, parent=0, structs_manager=structs_manager, variable=dummy_var)
@@ -321,12 +322,13 @@ class MemoryManager:
 				if var.is_pointer_array:
 					array_len = max(var.pointer_array_len, 1)
 					dummy_type = f"{base_type}[{array_len}]"
+				dummy_is_pointer = structs_manager.is_pointer(dummy_type)
 				dummy_var = Variable(
 					name=dummy_name,
 					raw_type=dummy_type,
 					kind=structs_manager.get_type_kind(dummy_type),
 					domain=var.domain,
-					is_pointer=False,
+					is_pointer=dummy_is_pointer,
 					points_to={},
 				)
 				dummy_addr = self._allocate(dummy_name, dummy_type, parent=0, structs_manager=structs_manager, variable=dummy_var)

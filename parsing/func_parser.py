@@ -224,15 +224,35 @@ class FuncParser:
 			if target_addr is not None:
 				self._mem.add_pointer_ref(target_addr, pointer_name)
 
-		self._scan_pointer_arrays(node, func)
+		if node is not None:
+			self._scan_pointer_arrays(node, func)
 		param_pointer_defaults = self._mem.allocate_params_for_function(list(func.vars_dict.values()) if func.vars_dict else [])
 
-		written: Dict[str, bool] = {}
 		pointer_map: Dict[str, Optional[int]] = dict(self._pointer_map)
 		for pointer_name, addr in param_pointer_defaults.items():
 			pointer_map[pointer_name] = addr
-		call_stack = set()
-		self._parse_function_with_context(node, func, func, pointer_map, written, call_stack)
+
+		if node is not None:
+			written: Dict[str, bool] = {}
+			call_stack = set()
+			self._parse_function_with_context(node, func, func, pointer_map, written, call_stack)
+		else:
+			for src_name, tgt_name in getattr(func, "config_ptr_init_names", []):
+				src_addr = self._mem.ensure_address(src_name)
+				if src_addr is None:
+					continue
+				tgt_addr: Optional[int] = None
+				if tgt_name:
+					tgt_addr = self._mem.ensure_address(tgt_name)
+				old_addr = pointer_map.get(src_name)
+				if old_addr is not None:
+					self._mem.remove_pointer_ref(old_addr, src_name)
+				pointer_map[src_name] = tgt_addr
+				src_block = self._mem.get_block(src_addr)
+				if src_block is not None and src_block.var is not None and src_block.var.is_pointer:
+					src_block.var.ptr_target = tgt_addr if tgt_addr is not None else -1
+				if tgt_addr is not None:
+					self._mem.add_pointer_ref(tgt_addr, src_name)
 		func.ptr_init = {}
 		for pointer_name, target_addr in pointer_map.items():
 			pointer_addr = self._mem.ensure_address(pointer_name)
@@ -922,6 +942,19 @@ class FuncParser:
 				if len(children) >= 2:
 					lhs, rhs = children[0], children[1]
 					if op == "=":
+						if lhs.kind == CursorKind.UNARY_OPERATOR and get_operator(lhs) == "*":
+							lhs_child = next(lhs.get_children(), None)
+							ptr_name = resolve_pointer_name(lhs_child)
+							ptr_key = resolve_pointer_key(ptr_name)
+							if ptr_key:
+								deref_addr = get_pointer_target_by_key(ptr_key)
+								if deref_addr is not None:
+									deref_block = self._mem.get_block(deref_addr)
+									if deref_block is not None and deref_block.var is not None and deref_block.var.is_pointer:
+										new_target_addr = resolve_pointer_target(rhs)
+										update_pointer_mapping(deref_block.var.name, new_target_addr)
+										handle_expr(rhs)
+										return
 						lhs_name, _ = resolve_var_access(lhs)
 						lhs_key = resolve_pointer_key(lhs_name)
 						if lhs_key:

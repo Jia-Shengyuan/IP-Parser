@@ -14,6 +14,7 @@ class Function:
         calls: Set[str] | None = None,
         non_state: Set[str] | None = None,
         ptr_init: Dict[int, int] | None = None,
+        config_ptr_init_names: List[tuple[str, str]] | None = None,
     ):
 
         self.name = name
@@ -25,5 +26,6 @@ class Function:
         self.calls = calls or set()
         self.non_state = non_state or set()
         self.ptr_init = ptr_init or {}
+        self.config_ptr_init_names = config_ptr_init_names or []
 
     
