@@ -4,6 +4,7 @@ typedef struct {
 } Ptr;
 
 void test_ptr_config(int **ptr1, int *ptr2);
+void test_ptr_config_null(int **ptr1);
 
 int a, b;
 
@@ -43,5 +44,11 @@ void test_config(int *x, int *y) {
     o1 = x;
     o2 = y;
     test_ptr_config(&o1, o2);
+    *o1 = 1;
+}
+
+void test_config_null(int *x) {
+    o1 = x;
+    test_ptr_config_null(&o1);
     *o1 = 1;
 }

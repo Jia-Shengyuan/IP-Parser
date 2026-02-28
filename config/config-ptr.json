@@ -22,5 +22,22 @@
             }
         ]
 
+    },
+    {
+        "function_name": "test_ptr_config_null",
+        "arguments": [
+            {
+                "name": "a",
+                "type": "int **",
+                "read": false,
+                "write": false
+            }
+        ],
+        "ptr_init": [
+            {
+                "name" : "a",
+                "target": "NULL"
+            }
+        ]
     }
 ]

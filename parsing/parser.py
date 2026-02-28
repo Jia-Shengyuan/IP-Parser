@@ -296,6 +296,18 @@ class Parser:
             t = self.structs.get_decoded_name(type_name).strip()
             return t.count("*")
 
+        def parse_ptr_target_name(target: Any) -> str | None:
+            if target is None:
+                return None
+            if not isinstance(target, str):
+                target = str(target)
+            name = target.strip()
+            if not name:
+                return None
+            if name.upper() in {"NULL", "nullptr".upper()}:
+                return None
+            return name
+
         for item in data:
             if not isinstance(item, dict):
                 continue
@@ -327,7 +339,7 @@ class Parser:
             func_vars_dict: Dict[str, Variable] = {}
             reads = set()
             writes = set()
-            ptr_init_names: List[tuple[str, str]] = []
+            ptr_init_names: List[tuple[str, str | None]] = []
             for vc in func_cfg.arguments:
                 raw_type = vc.type
                 kind = VARIABLE_KIND.BUILTIN
@@ -359,7 +371,7 @@ class Parser:
                     if not isinstance(pi, dict):
                         continue
                     src_name = pi.get("name")
-                    tgt_name = pi.get("target")
+                    tgt_name = parse_ptr_target_name(pi.get("target"))
                     if not src_name:
                         continue
                     src_prefixed = f"<{func_name}>{src_name}"
@@ -368,7 +380,7 @@ class Parser:
                     if src_level >= 2:
                         src_prefixed = f"{src_prefixed}__pointee"
 
-                    tgt_prefixed = ""
+                    tgt_prefixed: str | None = None
                     if tgt_name:
                         tgt_prefixed = f"<{func_name}>{tgt_name}"
                         tgt_type = arg_type_map.get(tgt_name, "")

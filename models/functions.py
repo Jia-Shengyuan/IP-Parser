@@ -1,5 +1,5 @@
 from models.variables import Variable
-from typing import List, Dict, Set
+from typing import List, Dict, Set, Optional
 
 class Function:
 
@@ -14,7 +14,7 @@ class Function:
         calls: Set[str] | None = None,
         non_state: Set[str] | None = None,
         ptr_init: Dict[int, int] | None = None,
-        config_ptr_init_names: List[tuple[str, str]] | None = None,
+        config_ptr_init_names: List[tuple[str, Optional[str]]] | None = None,
     ):
 
         self.name = name
