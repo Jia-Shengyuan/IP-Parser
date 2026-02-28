@@ -245,6 +245,15 @@ class MemoryManager:
 			var.address = addr
 			# self._blocks[addr].var = var  # Update with the original variable info
 
+	def allocate_local(self, variable: Variable) -> int:
+		"""
+		Allocate memory for one local variable and return its address.
+		"""
+		structs_manager = StructsManager.instance()
+		addr = self._allocate(variable.name, variable.raw_type, parent=0, structs_manager=structs_manager, variable=variable)
+		variable.address = addr
+		return addr
+
 	def allocate_params(self, variables: List[Variable]) -> Dict[str, int]:
 		"""
 		Allocate abstract memory for a list of parameter variables.

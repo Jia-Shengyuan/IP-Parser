@@ -27,6 +27,7 @@ class Variable:
         is_pointer_array: bool = False,
         pointer_array_len: int = 0,
         hidden: bool = False,
+        ptr_target: int = -1,
     ):
         self.name = name
         self.raw_type = raw_type # The type given by clang (may be adjusted for analysis)
@@ -40,6 +41,7 @@ class Variable:
         self.is_pointer_array = is_pointer_array
         self.pointer_array_len = pointer_array_len
         self.hidden = hidden
+        self.ptr_target = ptr_target
 
         self.read = set()  # functions that read this variable before rewriting
         self.write = set() # functions that write to this variable

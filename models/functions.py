@@ -13,6 +13,7 @@ class Function:
         writes: Set[str] | None = None,
         calls: Set[str] | None = None,
         non_state: Set[str] | None = None,
+        ptr_init: Dict[int, int] | None = None,
     ):
 
         self.name = name
@@ -23,5 +24,6 @@ class Function:
         self.writes = writes or set()
         self.calls = calls or set()
         self.non_state = non_state or set()
+        self.ptr_init = ptr_init or {}
 
     

@@ -87,3 +87,11 @@ void case_callers(void)
     case_a_pass_pointer_to_b(&gIntBuf[0], j);
     case_pointer_alias_assign(&gIntBuf[0], i);
 }
+
+void f_pointer_pointer(int **p, int *q) {
+    *p = q;
+}
+
+void case_pointer_pointer(int *ptr) {
+    f_pointer_pointer(&ptr, &gIntBuf[0]);
+}

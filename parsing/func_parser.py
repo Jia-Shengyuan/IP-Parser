@@ -3,7 +3,8 @@ from typing import Dict, Optional, Tuple, Any
 from clang.cindex import CursorKind, TypeKind
 
 from models.functions import Function
-from models.variables import Variable
+from models.variables import Variable, VARIABLE_DOMAIN, VARIABLE_KIND
+from models.structs import StructsManager
 from memory_managing.memory import MemoryManager
 
 """
@@ -232,6 +233,18 @@ class FuncParser:
 			pointer_map[pointer_name] = addr
 		call_stack = set()
 		self._parse_function_with_context(node, func, func, pointer_map, written, call_stack)
+		func.ptr_init = {}
+		for pointer_name, target_addr in pointer_map.items():
+			pointer_addr = self._mem.ensure_address(pointer_name)
+			if pointer_addr is None:
+				continue
+			block = self._mem.get_block(pointer_addr)
+			if block is None or block.var is None or not block.var.is_pointer:
+				continue
+			final_target = target_addr
+			if final_target is None and block.var.ptr_target >= 0:
+				final_target = block.var.ptr_target
+			func.ptr_init[pointer_addr] = final_target if final_target is not None else -1
 
 	# Parse with shared pointer map and root function attribution.
 	def _parse_function_with_context(
@@ -252,10 +265,33 @@ class FuncParser:
 		def resolve_pointer_key(name: Optional[str]) -> Optional[str]:
 			if not name:
 				return None
+			for candidate in (f"{func_prefix}{name}", name):
+				addr = self._mem.ensure_address(candidate)
+				if addr is None:
+					continue
+				block = self._mem.get_block(addr)
+				if block is not None and block.var is not None and block.var.is_pointer:
+					return block.var.name
 			local_key = f"{func_prefix}{name}"
 			if local_key in pointer_map:
 				return local_key
 			return name if name in pointer_map else None
+
+		def get_pointer_target_by_key(pointer_key: Optional[str]) -> Optional[int]:
+			if not pointer_key:
+				return None
+			target_addr = pointer_map.get(pointer_key)
+			if target_addr is not None:
+				return target_addr
+			pointer_addr = self._mem.ensure_address(pointer_key)
+			if pointer_addr is None:
+				return None
+			block = self._mem.get_block(pointer_addr)
+			if block is None or block.var is None or not block.var.is_pointer:
+				return None
+			if block.var.ptr_target >= 0:
+				return block.var.ptr_target
+			return None
 
 		# Record a read for the variable at this address.
 		def mark_read(addr: int) -> None:
@@ -364,7 +400,7 @@ class FuncParser:
 					return None, False
 				ptr_key = resolve_pointer_key(base_name)
 				if ptr_key:
-					target_addr = pointer_map.get(ptr_key)
+					target_addr = get_pointer_target_by_key(ptr_key)
 					if target_addr is not None:
 						block = self._mem.get_block(target_addr)
 						if block is not None and block.var is not None:
@@ -379,7 +415,7 @@ class FuncParser:
 					return None, False
 				ptr_key = resolve_pointer_key(base_name)
 				if ptr_key:
-					target_addr = pointer_map.get(ptr_key)
+					target_addr = get_pointer_target_by_key(ptr_key)
 					if target_addr is not None:
 						block = self._mem.get_block(target_addr)
 						if block is not None and block.var is not None:
@@ -413,7 +449,10 @@ class FuncParser:
 					if name:
 						return name
 				return None
-			if cursor.kind in (CursorKind.ARRAY_SUBSCRIPT_EXPR, CursorKind.MEMBER_REF_EXPR):
+			if cursor.kind == CursorKind.MEMBER_REF_EXPR:
+				name, _ = resolve_var_access(cursor)
+				return name
+			if cursor.kind == CursorKind.ARRAY_SUBSCRIPT_EXPR:
 				child = next(cursor.get_children(), None)
 				return resolve_pointer_name(child)
 			if cursor.kind == CursorKind.DECL_REF_EXPR:
@@ -423,9 +462,18 @@ class FuncParser:
 		# Update pointer mapping and memory back-references.
 		def update_pointer_mapping(pointer_name: str, target_addr: Optional[int]) -> None:
 			old_addr = pointer_map.get(pointer_name)
+			pointer_addr = self._mem.ensure_address(pointer_name)
+			if old_addr is None and pointer_addr is not None:
+				block = self._mem.get_block(pointer_addr)
+				if block is not None and block.var is not None and block.var.is_pointer and block.var.ptr_target >= 0:
+					old_addr = block.var.ptr_target
 			if old_addr is not None:
 				self._mem.remove_pointer_ref(old_addr, pointer_name)
 			pointer_map[pointer_name] = target_addr
+			if pointer_addr is not None:
+				block = self._mem.get_block(pointer_addr)
+				if block is not None and block.var is not None and block.var.is_pointer:
+					block.var.ptr_target = target_addr if target_addr is not None else -1
 			if target_addr is not None:
 				self._mem.add_pointer_ref(target_addr, pointer_name)
 
@@ -462,10 +510,10 @@ class FuncParser:
 			ptr_name = resolve_pointer_name(expr)
 			ptr_key = resolve_pointer_key(ptr_name)
 			if ptr_key is not None:
-				return pointer_map.get(ptr_key)
+				return get_pointer_target_by_key(ptr_key)
 			if expr.kind == CursorKind.DECL_REF_EXPR:
 				name = expr.spelling
-				mapped = pointer_map.get(name)
+				mapped = get_pointer_target_by_key(name)
 				if mapped is not None:
 					return mapped
 				return get_addr_for_name(name) if name else None
@@ -511,6 +559,30 @@ class FuncParser:
 				children = list(cursor.get_children())
 				# Track local pointer declarations and initializers.
 				var_name = cursor.spelling
+				if var_name:
+					local_key = f"{func_prefix}{var_name}"
+					if self._mem.ensure_address(local_key) is None:
+						local_type = cursor.type
+						raw_type = local_type.spelling
+						canonical_type = local_type.get_canonical()
+						if canonical_type.kind == TypeKind.POINTER:
+							local_kind = VARIABLE_KIND.POINTER
+						elif canonical_type.kind == TypeKind.RECORD:
+							local_kind = VARIABLE_KIND.RECORD
+						elif canonical_type.kind in [TypeKind.CONSTANTARRAY, TypeKind.INCOMPLETEARRAY, TypeKind.VARIABLEARRAY, TypeKind.DEPENDENTSIZEDARRAY]:
+							local_kind = VARIABLE_KIND.ARRAY
+						else:
+							local_kind = VARIABLE_KIND.BUILTIN
+						is_pointer_local = (canonical_type.kind == TypeKind.POINTER)
+						local_var = Variable(
+							name=local_key,
+							raw_type=raw_type,
+							kind=local_kind,
+							domain=VARIABLE_DOMAIN.LOCAL,
+							is_pointer=is_pointer_local,
+							points_to={},
+						)
+						self._mem.allocate_local(local_var)
 				if var_name and cursor.type.kind == TypeKind.POINTER:
 					local_key = f"{func_prefix}{var_name}"
 					pointer_map[local_key] = None
@@ -547,7 +619,7 @@ class FuncParser:
 						ptr_name = resolve_pointer_name(child)
 						ptr_key = resolve_pointer_key(ptr_name)
 						if ptr_key:
-							target_addr = pointer_map.get(ptr_key)
+							target_addr = get_pointer_target_by_key(ptr_key)
 							if target_addr is not None:
 								mark_read(target_addr)
 						return
@@ -739,6 +811,63 @@ class FuncParser:
 							continue
 						merge_global_write(var_name)
 
+					# Merge callee pointer final states back to caller context.
+					if getattr(callee_func, "ptr_init", None):
+						prefix = f"<{callee_func.name}>"
+
+						def map_local_name_to_caller(local_name: str, allow_param_value: bool = False) -> Optional[str]:
+							for param_base, arg_name in param_arg_names.items():
+								if not arg_name:
+									continue
+								target_addr = param_targets.get(param_base)
+								target_base_name = arg_name
+								if target_addr is not None:
+									target_block = self._mem.get_block(target_addr)
+									if target_block is not None and target_block.var is not None:
+										target_base_name = target_block.var.name
+								pointee_prefix = f"{param_base}__pointee"
+								if local_name == pointee_prefix:
+									return target_base_name
+								if local_name.startswith(pointee_prefix + ".") or local_name.startswith(pointee_prefix + "["):
+									return f"{target_base_name}{local_name[len(pointee_prefix):]}"
+								if local_name == param_base:
+									return arg_name if allow_param_value else None
+								if local_name.startswith(param_base + ".") or local_name.startswith(param_base + "["):
+									return f"{arg_name}{local_name[len(param_base):]}"
+							return None
+
+						for callee_ptr_addr, callee_target_addr in callee_func.ptr_init.items():
+							ptr_block = self._mem.get_block(callee_ptr_addr)
+							if ptr_block is None or ptr_block.var is None or not ptr_block.var.is_pointer:
+								continue
+							ptr_name = ptr_block.var.name
+
+							mapped_ptr_name: Optional[str] = None
+							if ptr_name.startswith(prefix):
+								local_name = ptr_name[len(prefix):]
+								mapped_ptr_name = map_local_name_to_caller(local_name)
+							else:
+								mapped_ptr_name = ptr_name
+
+							if not mapped_ptr_name:
+								continue
+
+							mapped_target_addr: Optional[int] = None
+							if callee_target_addr is not None and callee_target_addr >= 0:
+								target_block = self._mem.get_block(callee_target_addr)
+								if target_block is not None and target_block.var is not None:
+									target_name = target_block.var.name
+									if target_name.startswith(prefix):
+										local_target_name = target_name[len(prefix):]
+										mapped_target_name = map_local_name_to_caller(local_target_name, allow_param_value=True)
+										if mapped_target_name:
+											mapped_target_addr = get_addr_for_name(mapped_target_name)
+									else:
+										mapped_target_addr = self._mem.ensure_address(target_name)
+
+							mapped_ptr_key = resolve_pointer_key(mapped_ptr_name) or mapped_ptr_name
+							update_pointer_mapping(mapped_ptr_key, mapped_target_addr)
+
 				return
 			
 			if cursor.kind in (CursorKind.DECL_REF_EXPR, CursorKind.MEMBER_REF_EXPR, CursorKind.ARRAY_SUBSCRIPT_EXPR):
@@ -771,7 +900,7 @@ class FuncParser:
 					ptr_name = resolve_pointer_name(child)
 					ptr_key = resolve_pointer_key(ptr_name)
 					if ptr_key:
-						target_addr = pointer_map.get(ptr_key)
+						target_addr = get_pointer_target_by_key(ptr_key)
 						if target_addr is not None:
 							mark_read(target_addr)
 					return

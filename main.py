@@ -47,6 +47,8 @@ def _summarize_function(parser: Parser, target_name: str) -> FunctionSummarize:
 				break
 		root_var = root_block.var if root_block is not None else None
 		root_is_global = root_var is not None and root_var.domain == root_var.domain.GLOBAL
+		if root_var is not None and root_var.domain == root_var.domain.LOCAL:
+			continue
 
 		r_target = target_name in var.read
 		w_target = target_name in var.write
